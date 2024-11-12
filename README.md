@@ -1,2 +1,5 @@
-# compsci-512-final-project
-Atomic broadcast with the added notion of groups.
+Hunter Habersaat (hunter.habersaat@duke.edu)
+Aruj Bansal (aruj.bansal@duke.edu)
+Akshar Yeccherla (akshar.yeccherla@duke.edu)
+
+For our project, we’re developing a peer-to-peer messaging service that allows the formation of groups. Specifically, we intend to leverage some consensus algorithm to ensure messages are delivered in a strict, agreed-upon order across all peers within a group. This is particularly useful in environments where ordering is essential—for instance, in an auction platform where bids must reflect true order of arrival, or in stock trading environments where transaction precedence can impact pricing and outcomes. Our design will tackle challenges of high concurrency and dynamic peer participation, using the previously mentioned consensus algorithm to maintain consistency even under high load. This will involve devising a mechanism to initially discover/contact peers and setting up encrypted communication between participants. Additionally, we may expand this further to connect with other peers in the larger network.
