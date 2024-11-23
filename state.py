@@ -27,11 +27,13 @@ class State:
         :param message: The incoming message
         :return: Tuple (new_state, response) or None
         """
+        
         # Update term if the message term is higher
         if message.term > self._server._currentTerm:
             self._server._currentTerm = message.term
         elif message.term < self._server._currentTerm:
             self._send_response_message(message, yes=False)
+            time.sleep(0.001) # Blocking here fixes an issue for some reason
             return self, None
 
         # Route the message to the appropriate handler

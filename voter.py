@@ -16,6 +16,8 @@ class Voter(State):
         :param message: The vote request message
         :return: Tuple (self, None) to maintain the current state
         """
+        print(f"Server {self._server._name} received vote request from {message.sender}")
+        
         # Check if this server has already voted in the given term
         has_not_voted = message._term not in self._last_vote
 

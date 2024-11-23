@@ -59,7 +59,7 @@ class Candidate(Voter):
         Initiates the election process by sending RequestVote messages to all neighbors.
         """
         print(f"{self._server._name} is starting an election")
-        self._timeoutTime = time.time() + randint(1, 2)  # Election timeout in seconds
+        self._timeoutTime = time.time() + randint(5, 6)  # Election timeout in seconds
         self._votes = {}  # Reset votes for the new term
         self._server._currentTerm += 1  # Increment the term
 
