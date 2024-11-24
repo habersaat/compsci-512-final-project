@@ -1,112 +1,40 @@
 import time
+from enum import Enum, auto
 
+# Enum for the different types of messages that can be sent between servers
+class MessageType(Enum):
+    AppendEntries = auto()
+    RequestVote = auto()
+    RequestVoteResponse = auto()
+    ClientResponse = auto()
+    ClientCommand = auto()
 
 class Message:
-    """
-    Represents a message used in the Raft protocol with various message types.
-    """
+    def __init__(self, source, destination, term, payload, message_type, unpack_time=None):
+        self.timestamp = time.time()     # The time at which the message was created
+        self.src = source                # The name of the server that sent the message
+        self.dst = destination           # The name of the server that should receive the message
+        self.payload = payload           # The data that the message carries
+        self.term = term                 # The Raft term in which the message was sent 
+        self.type = message_type         # The type of message that was sent (i.e. AppendEntries, RequestVote, etc.)
+        self.unpack_time = unpack_time if unpack_time else self.timestamp # The time at which the message can be unpacked and read
 
-    # Message Types
-    AppendEntries = 0
-    RequestVote = 1
-    RequestVoteResponse = 2
-    Response = 3
-    ClientCommand = 4
+    def __lt__(self, other):
+        """
+        A message is considered 'less than' another if its `unpack_time` is earlier. Used for priority queue ordering.
+        """
+        return self.unpack_time < other.unpack_time
 
-    def __init__(self, sender, receiver, term, data, message_type):
+    def __eq__(self, other):
         """
-        Initializes a Message instance.
+        Equality based on unpack_time. Used for popping from the priority queue.
+        """
+        return self.unpack_time == other.unpack_time and self.term == other.term
 
-        :param sender: The name of the sender server
-        :param receiver: The name of the receiver server
-        :param term: The term number associated with the message
-        :param data: The payload/data of the message
-        :param message_type: The type of the message
+    def set_unpack_time(self, unpack_time):
         """
-        self._timestamp = int(time.time())  # Record the message creation time
-        self._sender = sender
-        self._receiver = receiver
-        self._data = data
-        self._term = term
-        self._type = message_type
+        Updates the unpack time of the message. This is used to simulate network delays (see usage in raft_server.py).
 
-    # ----------------------- Properties -----------------------
-
-    @property
-    def receiver(self):
+        :param unpack_time: The new time at which the message can be unpacked and read
         """
-        :return: The name of the receiver server.
-        """
-        return self._receiver
-
-    @property
-    def sender(self):
-        """
-        :return: The name of the sender server.
-        """
-        return self._sender
-
-    @property
-    def data(self):
-        """
-        :return: The payload or data of the message.
-        """
-        return self._data
-
-    @property
-    def timestamp(self):
-        """
-        :return: The creation timestamp of the message.
-        """
-        return self._timestamp
-
-    @property
-    def term(self):
-        """
-        :return: The term number associated with the message.
-        """
-        return self._term
-
-    @property
-    def type(self):
-        """
-        :return: The type of the message (e.g., RequestVote, AppendEntries).
-        """
-        return self._type
-
-    # ----------------------- Utility Methods -----------------------
-
-    def is_type(self, message_type):
-        """
-        Checks if the message is of a specific type.
-
-        :param message_type: The message type to check against
-        :return: True if the message matches the type, False otherwise
-        """
-        return self._type == message_type
-
-    def to_dict(self):
-        """
-        Converts the message into a dictionary format.
-
-        :return: A dictionary representing the message
-        """
-        return {
-            "timestamp": self._timestamp,
-            "sender": self._sender,
-            "receiver": self._receiver,
-            "data": self._data,
-            "term": self._term,
-            "type": self._type,
-        }
-
-    def __str__(self):
-        """
-        Provides a human-readable string representation of the message.
-
-        :return: A string describing the message
-        """
-        return (
-            f"Message(sender={self._sender}, receiver={self._receiver}, "
-            f"term={self._term}, type={self._type}, data={self._data})"
-        )
+        self.unpack_time = unpack_time
