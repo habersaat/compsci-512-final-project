@@ -34,6 +34,7 @@ class Leader(State):
         for neighbor in self._server._neighbors:
             self._nextIndexes[neighbor._name] = max(self._server._lastLogIndex + 1, 0)
             self._matchIndex[neighbor._name] = 0
+        print(f"Leader initialized with nextIndexes: {self._nextIndexes}")
 
     def send_pending_messages(self, server_name):
         log = self._server._log
@@ -93,11 +94,12 @@ class Leader(State):
             },
             message_type=Message.AppendEntries
         )
+
         self._server.send_message(append_entries_message)
         return self, None
 
     def on_response_received(self, message):
-        """
+        """x
         Handles responses to AppendEntries messages.
 
         :param message: The response message
@@ -117,31 +119,55 @@ class Leader(State):
 
         :param message: The response message indicating failure
         """
-        # Decrement the nextIndex for the sender to backtrack the log
-        self._nextIndexes[message.sender] -= 1
 
-        # Calculate the previous index and prepare the log entries to resend
-        previous_index = self._nextIndexes[message.sender] - 1
-        previous_entry = self._server._log[previous_index]  # Entry before the failed log
-        current_entries = self._server._log[self._nextIndexes[message.sender]:]  # Entries to resend
+        if self._nextIndexes[message.sender] == 0:
+            previous_index = -1
+            previous_log_term = None
+            current_entries = self._server._log
 
-        # Update the number of log entries being sent for this follower
-        self._numofMessages[message.sender] = len(current_entries)
+            append_entry_message = Message(
+                sender=self._server._name,
+                receiver=message.sender,
+                term=self._server._currentTerm,
+                data={
+                    "leaderId": self._server._name,
+                    "prevLogIndex": previous_index,
+                    "prevLogTerm": previous_log_term,
+                    "entries": current_entries,
+                    "leaderCommit": self._server._commitIndex,
+                },
+                message_type=Message.AppendEntries
+            )
+        else:
+            # Decrement the nextIndex for the sender to backtrack the log.
+            self._nextIndexes[message.sender] -= 1
 
-        # Create a new AppendEntries message with the adjusted log data
-        append_entry_message = Message(
-            sender=self._server._name,
-            receiver=message.sender,
-            term=self._server._currentTerm,
-            data={
-                "leaderId": self._server._name,
-                "prevLogIndex": previous_index,
-                "prevLogTerm": previous_entry["term"],
-                "entries": current_entries,
-                "leaderCommit": self._server._commitIndex,
-            },
-            message_type=Message.AppendEntries
-        )
+            # Calculate the previous index and prepare the log entries to resend
+            previous_index = self._nextIndexes[message.sender] - 1
+
+
+            previous_entry = self._server._log[previous_index]  # Entry before the failed log
+            current_entries = self._server._log[self._nextIndexes[message.sender]:]  # Entries to resend
+
+            # Update the number of log entries being sent for this follower
+            self._numofMessages[message.sender] = len(current_entries)
+
+            # Create a new AppendEntries message with the adjusted log data
+            append_entry_message = Message(
+                sender=self._server._name,
+                receiver=message.sender,
+                term=self._server._currentTerm,
+                data={
+                    "leaderId": self._server._name,
+                    "prevLogIndex": previous_index,
+                    "prevLogTerm": previous_entry["term"],
+                    "entries": current_entries,
+                    "leaderCommit": self._server._commitIndex,
+                },
+                message_type=Message.AppendEntries
+            )
+
+        print(f"Leader resending log entry {previous_index + 1} to {message.sender}")
 
         # Send the updated AppendEntries message to the follower
         self._server.send_message_response(append_entry_message)
@@ -161,6 +187,7 @@ class Leader(State):
         for i in range(last_index, current_index - 1, -1):
             # Increment the acknowledgment count for the current log entry
             self._ackCount[i] += 1
+            print(f"Leader received ACK for log entry {i}")
 
             # Check if the current log entry has been acknowledged by the majority
             if self._ackCount[i] == (self._server._total_nodes + 1) / 2:

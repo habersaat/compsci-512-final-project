@@ -152,6 +152,11 @@ def display_server_logs(name):
     server = config[name]["object"]
     print(f"Server {name} logs: {server._log}")
 
+def hash_server_logs(name):
+    """Hashes the logs of a specific server."""
+    server = config[name]["object"]
+    return hash(server._log)
+
 # ----------------------- User Interface -----------------------
 
 def display_menu():

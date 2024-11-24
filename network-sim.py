@@ -14,7 +14,6 @@ import logging
 term = 0
 config = {}
 available_id = 0
-lag = 0.100 # Network latency in seconds
 
 # ----------------------- Server Management -----------------------
 
@@ -236,13 +235,15 @@ class RaftSimulation:
             server = randint(0, len(config) - 1)
             message_data = f"Message at {time.time()}"
             self.logger.debug(f"Sending client command to server {server}: {message_data}")
-            self.start_time = time.time()
+            self.commit_start_time = time.time()
             send_client_command(server, message_data)
 
             # Monitor log commit time
             time.sleep(0.1)  # Simulate a short delay between commands
-            commit_time = time.time() - self.start_time - 0.1  # Subtract delay time
+            commit_time = time.time() - self.commit_start_time - 0.1  # Subtract delay time
             self.commit_times.append(commit_time)
+
+        time.sleep(3)  # Wait for final messages to be processed
 
     def fail_leader_periodically(self):
         """Periodically fails the leader if specified."""
@@ -292,8 +293,12 @@ class RaftSimulation:
         election_overhead = (self.total_election_time / self.simulation_duration) * 100  # Overhead percentage
         self.logger.info("\n--- Benchmarking Results ---")
         self.logger.info(f"Average leader election time: {avg_election_time:.3f} seconds over {len(self.election_times)} elections")
-        self.logger.info(f"Average log commit time: {avg_commit_time:.3f} seconds")
+        # self.logger.info(f"Average log commit time: {avg_commit_time:.3f} seconds") not working
         self.logger.info(f"Leader election overhead: {election_overhead:.2f}% of total runtime")
+
+        # Display each servers logs
+        for name, server in config.items():
+            print (f"Server {name} logs: {server['object']._log}")
 
     def run(self):
         """Runs the entire simulation."""
@@ -309,6 +314,12 @@ class RaftSimulation:
         # Display benchmarks
         self.benchmark()
 
+        # Display each servers logs
+        for name, server in config.items():
+            # compute hash of logs and print
+            logs = server["object"]._log
+            print(f"Server {name} logs hash: {hash(str(logs))}")
+
 
 # ----------------------- Main Program -----------------------
 
@@ -317,7 +328,7 @@ if __name__ == "__main__":
     num_servers = 10
     simulation_duration = 30  # Run simulation for 30 seconds
     leader_fail_frequency = 5  # Fail leader every 5 seconds
-    leader_recover_frequency = 10  # Recover leader every 10 seconds
+    leader_recover_frequency = 60  # Recover leader every 10 seconds
     quiet = True  # Enable quiet mode
 
     # Initialize and run the simulation

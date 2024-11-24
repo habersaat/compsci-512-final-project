@@ -27,7 +27,7 @@ class State:
         :param message: The incoming message
         :return: Tuple (new_state, response) or None
         """
-        
+
         # Update term if the message term is higher
         if message.term > self._server._currentTerm:
             self._server._currentTerm = message.term
@@ -36,18 +36,20 @@ class State:
             time.sleep(0.001) # Blocking here fixes an issue for some reason
             return self, None
 
-        # Route the message to the appropriate handler
-        message_handlers = {
-            Message.AppendEntries: self.on_append_entries,
-            Message.RequestVote: self.on_vote_request,
-            Message.RequestVoteResponse: self.on_vote_received,
-            Message.Response: self.on_response_received,
-            Message.ClientCommand: self.run_client_command,
-        }
-
-        handler = message_handlers.get(message.type)
-        if handler:
-            return handler(message)
+        # Delegate message handling to the appropriate method
+        if message.type == Message.AppendEntries:
+            return self.on_append_entries(message)
+        elif message.type == Message.RequestVote:
+            return self.on_vote_request(message)
+        elif message.type == Message.RequestVoteResponse:
+            return self.on_vote_received(message)
+        elif message.type == Message.Response:
+            response_received = self.on_response_received(message)
+            if response_received is None:
+                print("There is likely an error with an old recovered leader still receiving responses")
+            return response_received
+        elif message.type == Message.ClientCommand:
+            return self.run_client_command(message)
         return self, None
 
     # ----------------------- Message Handlers -----------------------

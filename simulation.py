@@ -233,12 +233,12 @@ class RaftSimulation:
             server = randint(0, len(config) - 1)
             message_data = f"Message at {time.time()}"
             self.logger.debug(f"Sending client command to server {server}: {message_data}")
-            self.start_time = time.time()
+            self.commit_start_time = time.time()
             send_client_command(server, message_data)
 
             # Monitor log commit time
             time.sleep(0.1)  # Simulate a short delay between commands
-            commit_time = time.time() - self.start_time - 0.1  # Subtract delay time
+            commit_time = time.time() - self.commit_start_time - 0.1  # Subtract delay time
             self.commit_times.append(commit_time)
 
     def fail_leader_periodically(self):
@@ -307,6 +307,11 @@ class RaftSimulation:
         # Display benchmarks
         self.benchmark()
 
+        # Display each servers logs
+        for name, server in config.items():
+            # compute hash of logs and print
+            logs = server["object"]._log
+            print(f"Server {name} logs hash: {hash(str(logs))}")
 
 # ----------------------- Main Program -----------------------
 

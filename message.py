@@ -13,7 +13,7 @@ class Message:
     Response = 3
     ClientCommand = 4
 
-    def __init__(self, sender, receiver, term, data, message_type):
+    def __init__(self, sender, receiver, term, data, message_type, unpack_time=None):
         """
         Initializes a Message instance.
 
@@ -29,6 +29,7 @@ class Message:
         self._data = data
         self._term = term
         self._type = message_type
+        self._unpack_time = unpack_time if unpack_time is not None else time.time()
 
     # ----------------------- Properties -----------------------
 
@@ -73,6 +74,23 @@ class Message:
         :return: The type of the message (e.g., RequestVote, AppendEntries).
         """
         return self._type
+    
+    @property
+    def unpack_time(self):
+        """
+        :return: The time at which the message can be unpacked and read.
+        """
+        return self._unpack_time
+    
+    # ----------------------- Setter Method -----------------------
+
+    def set_unpack_time(self, unpack_time):
+        """
+        Updates the unpack time of the message.
+
+        :param unpack_time: The new time at which the message can be unpacked and read
+        """
+        self._unpack_time = unpack_time
 
     # ----------------------- Utility Methods -----------------------
 
@@ -108,5 +126,6 @@ class Message:
         """
         return (
             f"Message(sender={self._sender}, receiver={self._receiver}, "
-            f"term={self._term}, type={self._type}, data={self._data})"
+            f"term={self._term}, type={self._type}, data={self._data}, "
+            f"unpack_time={self._unpack_time})"
         )

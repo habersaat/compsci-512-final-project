@@ -12,7 +12,7 @@ class NetworkServer:
     Handles state transitions, message processing, and client commands with latency and retransmission.
     """
 
-    def __init__(self, name, state, log, neighbors, latency_range=(0.01, 0.1), retransmission_chance=0.1):
+    def __init__(self, name, state, log, neighbors, latency_range=(0.3, 0.5), retransmission_chance=0.1):
         """
         Initializes the server instance with network simulation capabilities.
 
@@ -46,20 +46,22 @@ class NetworkServer:
 
     def post_message(self, message):
         """
-        Adds a message to the server's message board and sorts it by timestamp.
+        Adds a message to the server's message board and sorts it by unpack time.
 
         :param message: The message to add
         """
         self._board.append(message)
-        self._board.sort(key=lambda msg: msg.timestamp, reverse=True)
+        self._board.sort(key=lambda msg: msg.unpack_time, reverse=True)
+        # print(self._board)
 
     def get_message(self):
         """
-        Retrieves the next message from the message board.
+        Retrieves the next message from the message board if it is ready to be unpacked.
 
         :return: The next message or None if the board is empty
         """
-        return self._board.pop() if self._board else None
+        if self._board and time.time() > self._board[-1].unpack_time:
+            return self._board.pop()
 
     # ----------------------- Message Sending with Network Simulation -----------------------
 
@@ -73,7 +75,6 @@ class NetworkServer:
             if neighbor._serverState != deadState:
                 message._receiver = neighbor._name
                 self._simulate_network_conditions(neighbor, message)
-                neighbor.post_message(message)
 
     def send_message_response(self, message):
         """
@@ -84,25 +85,29 @@ class NetworkServer:
         for neighbor in self._neighbors:
             if neighbor._name == message.receiver:
                 self._simulate_network_conditions(neighbor, message)
-                neighbor.post_message(message)
 
     def _simulate_network_conditions(self, neighbor, message):
         """
-        Simulates network latency and retransmissions for message delivery.
+        Simulates network latency and retransmissions with exponentially increasing backoff.
 
         :param neighbor: The receiving server
         :param message: The message to deliver
         """
-        # Simulate latency
-        latency = random.uniform(*self.latency_range)
-        time.sleep(latency)
+        # Calculate the initial latency
+        base_latency = random.uniform(*self.latency_range)
+        unpack_time = time.time() + base_latency
 
-        # Simulate retransmission
-        if random.random() < self.retransmission_chance:
-            latency = random.uniform(*self.latency_range)
-            time.sleep(latency)
+        # Simulate retransmissions with exponential backoff
+        retransmission_count = 0
+        while random.random() < self.retransmission_chance:
+            retransmission_delay = base_latency * (2 ** retransmission_count)
+            unpack_time += retransmission_delay
+            retransmission_count += 1
 
-        # Deliver the message
+        # Update the message's unpack_time
+        message.set_unpack_time(unpack_time)
+
+        # Post the message to the neighbor's queue
         neighbor.post_message(message)
 
     # ----------------------- Message Handling -----------------------
@@ -123,7 +128,8 @@ class NetworkServer:
             return
 
         # Delegate message handling to the current state
-        state, response = self._state.on_message(message)
+        the_result = self._state.on_message(message)
+        state = the_result[0]
 
         # Transition to leader state if applicable
         if isinstance(state, Leader) and not isinstance(self._state, Leader):

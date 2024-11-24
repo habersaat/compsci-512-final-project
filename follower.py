@@ -43,6 +43,7 @@ class Follower(Voter):
 
         # Reject if the message term is stale
         if message._term < self._server._currentTerm:
+            print(f"Server {self._server._name} rejected stale AppendEntries message")
             self._send_response_message(message, yes=False)
             return self, None
 
@@ -96,12 +97,14 @@ class Follower(Voter):
 
         # Check for missing logs
         if data["prevLogIndex"] > -1 and len(log) <= data["prevLogIndex"]:
+            print(f"Server {self._server._name} has missing logs. Log is {log} and prevLogIndex is {data['prevLogIndex']}")
             self._send_response_message(message, yes=False)
             return self, None
 
         # Check for log inconsistency and truncate if necessary
         if len(log) > 0 and log[data["prevLogIndex"]]["term"] != data["prevLogTerm"]:
             log = log[:data["prevLogIndex"]]
+            print(f"Server {self._server._name} truncated log: {log}")
             self._send_response_message(message, yes=False)
             self._update_server_log(log, data["prevLogIndex"], data["prevLogTerm"])
             return self, None
