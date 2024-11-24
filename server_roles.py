@@ -281,7 +281,7 @@ class Candidate(Role):
     def prepare_for_election(self):
         """Prepares the candidate for a new election cycle."""
         print(f"Server {self.server.id} is starting election")
-        self.timeout_time = time.time() + randint(1, 2)
+        self.timeout_time = time.time() + randint(1, 2) # Change based on number of nodes and network latency
         self.votes = {}
         self.server.current_term += 1
 
