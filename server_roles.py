@@ -291,6 +291,7 @@ class Candidate(Role):
         leader.assign_to_server(self.server)
         print(f"Server {self.server.id} has been elected leader")
         self.server.server_state = ServerState.LEADER
+        self.server.term_ground_truth = set()
 
         # Iterate over neighbors and update their roles to followers
         for neighbor in self.server.neighbors:
@@ -496,7 +497,9 @@ class Leader(Role):
         """Commits log entries if a majority of followers acknowledge."""
         for log_index in range(self.server.commit_index + 1, self.server.last_log_index + 1):
             if self.is_majority_acknowledged(log_index):
+                print(log_index)
                 self.server.commit_index = log_index
+                self.server.term_ground_truth.add(str(self.log[log_index]))
 
     def is_majority_acknowledged(self, log_index):
         """Checks if a log entry is acknowledged by the majority."""

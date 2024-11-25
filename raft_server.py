@@ -17,6 +17,7 @@ class Server:
         self.message_queue_lock = Lock()                # Lock for the message queue
         self.total_nodes = 0                            # Total number of nodes in the cluster
         self.active_nodes = 0                           # Number of active nodes in the cluster
+        self.term_ground_truth = set()                  # Logs added during server's term as leader
 
         # Indexes for Raft Algorithm
         self.commit_index = commit_index                # Index of the last committed log entry

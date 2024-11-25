@@ -206,6 +206,7 @@ class RaftSimulation:
         self.commit_times = []
         self.last_known_leader = None
         self.lock = Lock()  # Lock for thread safety
+        self.global_ground_truth = set()
 
     def initialize_cluster(self):
         """Starts the simulation cluster by spawning servers and initiating an election."""
@@ -282,6 +283,7 @@ class RaftSimulation:
                 if leader_id is not None:
                     print(f"Simulating leader failure for server {leader_id}...")
                     self.start_time = time.time()  # Record start time for election
+                    self.global_ground_truth.union(Cluster.config[leader_id]["instance"].term_ground_truth)
                     mark_server_as_dead(leader_id)
                     time.sleep(0.001) # Blocking call acts as a barrier
                     self.wait_for_election_completion()
