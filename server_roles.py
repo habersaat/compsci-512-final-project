@@ -46,6 +46,8 @@ class Role:
             MessageType.RequestVoteResponse: self.process_vote_received,
             MessageType.ClientResponse: self.process_response,
             MessageType.ClientCommand: self.execute_client_command,
+            MessageType.RequestToJoin: self.process_join_request,
+            MessageType.AddToCluster: self.handle_add_to_cluster,
         }
 
         # Get the handler for the message type and execute it
@@ -62,6 +64,7 @@ class Role:
         """
         Constructs and sends a response message back to the sender of the original message.
         """
+
         response_payload = {
             "response": is_accepted, # Boolean indicating whether the request was accepted
             "current_term": self.server.current_term,
@@ -77,6 +80,24 @@ class Role:
 
         # Deliver the response to the original sender
         self.server.send_message(response_message, target_id=original_message.src)
+
+    def process_join_request(self, message):
+        """Redirect the join request to the leader."""
+        leader = self.server.get_leader()
+        if leader:
+            join_request_message = Message(
+                message.src,
+                leader.id,
+                message.term,
+                message.payload,
+                MessageType.RequestToJoin,
+                join_upon_confirmation=message.join_upon_confirmation
+            )
+            self.server.send_message(join_request_message, target_id=leader.id)
+            # print(f"Server {self.server.id} redirected join request to leader {leader.id}")
+        else:
+            print(f"Server {self.server.id} has no leader to process join request")
+        return self, None
 
     def on_leader_timeout(self, message):
         """This is called when the leader timeout is reached."""
@@ -95,6 +116,12 @@ class Role:
 
     def execute_client_command(self, message):
         """This is called when a client command is received."""
+
+    def add_server_to_cluster(self, new_server_id):
+        """This is called when a new server joins the cluster."""
+    
+    def handle_add_to_cluster(self, message):
+        """This is called when a server is added to the cluster."""
 
 
 class Follower(Role):
@@ -176,6 +203,17 @@ class Follower(Role):
                 self.send_response(message, is_accepted=False)
                 return self, None
             self.apply_log_entries(message)
+            if message.join_upon_confirmation:
+                print(f"JOIN UPON CONFIRMATION: Server {self.server.id} is joining the cluster")
+                leader = self.find_current_leader()
+                message = Message(
+                    self.server.id,
+                    leader.id,
+                    self.server.current_term,
+                    {},
+                    MessageType.AddToCluster
+                )
+                self.server.send_message(message, target_id=leader.id)
 
         return self, None
         
@@ -186,6 +224,8 @@ class Follower(Role):
     def validate_log_entries(self, payload):
         """Validate the log entries in the append entries payload."""
         log = self.server.log
+        if payload["last_log_index"] == -1:
+            return True
         if payload["last_log_index"] > -1 and len(log) <= payload["last_log_index"]:
             return False
         if len(log) > 0 and log[payload["last_log_index"]]["term"] != payload["last_log_term"]:
@@ -324,13 +364,16 @@ class Leader(Role):
             self.next_indexes[neighbor.id] = self.server.last_log_index + 1
             self.match_indexes[neighbor.id] = 0
 
-    def sync_log_with_follower(self, follower_id):
+    def sync_log_with_follower(self, follower_id, join_upon_confirmation=False):
         """Synchronize logs with a specific follower."""
         if not self.server.log:
             return  # No log to synchronize
 
         previous_index, current_entries = self.get_log_entries_for_sync(follower_id)
         message = self.create_append_entries_message(follower_id, previous_index, current_entries)
+        message.join_upon_confirmation = join_upon_confirmation
+        if message.join_upon_confirmation:
+            print(f"JOIN UPON CONFIRMATION 1. Message type: {message.type}, Message src: {message.src}, Message dst: {message.dst}, join_upon_confirmation: {message.join_upon_confirmation}")
         self.server.send_message(message, target_id=follower_id)
 
     def get_log_entries_for_sync(self, follower_id):
@@ -472,3 +515,17 @@ class Leader(Role):
     def calculate_next_timeout(self):
         """Calculates the next timeout for the leader."""
         return time.time() + self.timeout
+    
+    def process_join_request(self, message):
+        """Process a join request from a new server."""
+        if message.src in self.next_indexes:
+            print(f"Leader Server {self.server.id}: Server {message.src} is already in the cluster.")
+            return self, None
+        
+        print(f"Leader Server {self.server.id} received join request from {message.src}")
+        self.sync_log_with_follower(message.src, join_upon_confirmation=True)
+        return self, None
+
+    def handle_add_server_to_cluster(self, new_server_id):
+        """Add a new server to the cluster."""
+        print(f"Leader Server {self.server.id} is adding Server {new_server_id} to the cluster")

@@ -8,9 +8,11 @@ class MessageType(Enum):
     RequestVoteResponse = auto()
     ClientResponse = auto()
     ClientCommand = auto()
+    RequestToJoin = auto()
+    AddToCluster = auto()
 
 class Message:
-    def __init__(self, source, destination, term, payload, message_type, unpack_time=None):
+    def __init__(self, source, destination, term, payload, message_type, unpack_time=None, join_upon_confirmation=False):
         self.timestamp = time.time()     # The time at which the message was created
         self.src = source                # The name of the server that sent the message
         self.dst = destination           # The name of the server that should receive the message
@@ -18,6 +20,7 @@ class Message:
         self.term = term                 # The Raft term in which the message was sent 
         self.type = message_type         # The type of message that was sent (i.e. AppendEntries, RequestVote, etc.)
         self.unpack_time = unpack_time if unpack_time else self.timestamp # The time at which the message can be unpacked and read
+        self.join_upon_confirmation = join_upon_confirmation # A flag to indicate that the server should join the cluster upon receiving a confirmation
 
     def __lt__(self, other):
         """

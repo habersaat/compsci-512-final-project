@@ -15,6 +15,7 @@ class Server:
         self.log = log                                  # Log entries for Raft
         self.message_queue = PriorityQueue()            # Priority Queue for incoming messages (sorted by unpack_time)
         self.total_nodes = 0                            # Total number of nodes in the cluster
+        self.active_nodes = 0                           # Number of active nodes in the cluster
 
         # Indexes for Raft Algorithm
         self.commit_index = commit_index                # Index of the last committed log entry
@@ -80,6 +81,8 @@ class Server:
             unpack_time, message = self.message_queue.queue[0]  # Peek at the first item
             message_timestamp = message.timestamp
             if time.time() > unpack_time:
+                if message.join_upon_confirmation and message.type == MessageType.AppendEntries:
+                    print(f"JOIN UPON CONFIRMATION 2")
                 # print(f"Server {self.id} received message with latency {unpack_time - message_timestamp:.3f}s")
                 return self.message_queue.get()[1]  # Return the message
         return None
@@ -109,6 +112,10 @@ class Server:
             return
         if message.type == MessageType.RequestVoteResponse and isinstance(self.role, Follower):
             return
+        
+        if message.join_upon_confirmation and message.type == MessageType.AppendEntries:
+            print(f"JOIN UPON CONFIRMATION 3. Message type: {message.type}")
+
 
         # Delegate message handling to the current role
         role_response = self.role.handle_message(message)
