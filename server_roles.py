@@ -52,6 +52,7 @@ class Role:
 
         # Get the handler for the message type and execute it
         handler = message_handlers.get(message.type)
+
         return handler(message)
 
     def next_timeout(self):
@@ -93,8 +94,8 @@ class Role:
                 MessageType.RequestToJoin,
                 join_upon_confirmation=message.join_upon_confirmation
             )
+            print(f"Server {self.server.id} is redirecting join request to leader {leader.id}")
             self.server.send_message(join_request_message, target_id=leader.id)
-            # print(f"Server {self.server.id} redirected join request to leader {leader.id}")
         else:
             print(f"Server {self.server.id} has no leader to process join request")
         return self, None
@@ -185,6 +186,7 @@ class Follower(Role):
         Handles an append entries request from the leader.
         Updates log entries and commit index if necessary.
         """
+
         # Update the commit index if the leader's commit index is greater
         if message.payload["leader_commit"] > self.server.commit_index:
             self.update_commit_index(message.payload["leader_commit"])
@@ -372,8 +374,6 @@ class Leader(Role):
         previous_index, current_entries = self.get_log_entries_for_sync(follower_id)
         message = self.create_append_entries_message(follower_id, previous_index, current_entries)
         message.join_upon_confirmation = join_upon_confirmation
-        if message.join_upon_confirmation:
-            print(f"JOIN UPON CONFIRMATION 1. Message type: {message.type}, Message src: {message.src}, Message dst: {message.dst}, join_upon_confirmation: {message.join_upon_confirmation}")
         self.server.send_message(message, target_id=follower_id)
 
     def get_log_entries_for_sync(self, follower_id):

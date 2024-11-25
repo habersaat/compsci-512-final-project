@@ -133,10 +133,10 @@ def add_server_to_cluster():
     # Connect the new server to existing ones
     for existing_server_id, data in Cluster.config.items():
         existing_server = data["instance"]
-        existing_server.neighbors.append(new_server)
+        existing_server.neighbors.add(new_server)
         existing_server.active_nodes += 1
         new_server.active_nodes += 1
-        new_server.neighbors.append(existing_server)
+        new_server.neighbors.add(existing_server)
 
     Cluster.config[Cluster.next_server_id] = {"instance": new_server}
     Thread(target=manage_server_lifecycle, args=(Cluster.next_server_id,), daemon=True).start()
@@ -146,12 +146,20 @@ def add_request_to_join_cluster():
     """
     Adds a request to join the cluster.
     """
+    print("Adding a request to join the cluster...")
     new_server_role = Follower()
     new_server = Server(Cluster.next_server_id, new_server_role)
-    # new_server.total_nodes = Cluster.next_server_id + 1
-    # new_server.active_nodes += 1
 
-    # Cluster.config[Cluster.next_server_id] = {"instance": new_server}
+    # Connect the new server to existing ones
+    for existing_server_id, data in Cluster.config.items():
+        existing_server = data["instance"]
+        existing_server.neighbors.add(new_server)
+        existing_server.active_nodes += 1
+        new_server.active_nodes += 1
+        new_server.neighbors.add(existing_server)
+
+    Cluster.config[Cluster.next_server_id] = {"instance": new_server}
+    Thread(target=manage_server_lifecycle, args=(Cluster.next_server_id,), daemon=True).start()
     Cluster.next_server_id += 1
 
     # Pick a random server to send the request to

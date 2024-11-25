@@ -4,16 +4,17 @@ from random import randint
 import random
 import time
 from queue import PriorityQueue
-
+from threading import Lock
 
 class Server:
-    def __init__(self, node_id, role, neighbors=[], log=[], commit_index=-1, latency_range=(0.0, 0.0), retransmission_chance=0.0):
+    def __init__(self, node_id, role, neighbors=set(), log=[], commit_index=-1, latency_range=(0.0, 0.0), retransmission_chance=0.0):
         self.id = node_id                               # Unique identifier for the server
         self.role = role                                # Role of the server (Leader, Follower, Candidate)
         self.server_state = ServerState.FOLLOWER        # Default server state is Follower
         self.neighbors = neighbors                      # List of peer servers
         self.log = log                                  # Log entries for Raft
         self.message_queue = PriorityQueue()            # Priority Queue for incoming messages (sorted by unpack_time)
+        self.message_queue_lock = Lock()                # Lock for the message queue
         self.total_nodes = 0                            # Total number of nodes in the cluster
         self.active_nodes = 0                           # Number of active nodes in the cluster
 
@@ -81,8 +82,6 @@ class Server:
             unpack_time, message = self.message_queue.queue[0]  # Peek at the first item
             message_timestamp = message.timestamp
             if time.time() > unpack_time:
-                if message.join_upon_confirmation and message.type == MessageType.AppendEntries:
-                    print(f"JOIN UPON CONFIRMATION 2")
                 # print(f"Server {self.id} received message with latency {unpack_time - message_timestamp:.3f}s")
                 return self.message_queue.get()[1]  # Return the message
         return None
@@ -91,11 +90,13 @@ class Server:
         """
         Sends a message to a specific neighbor or broadcasts to all neighbors.
         """
+
         if target_id:
             # Send to a specific neighbor
             for neighbor in self.neighbors:
                 if neighbor.id == message.dst:
                     self.simulate_network_conditions(neighbor, message)
+                    break
         else:
             # Broadcast to all neighbors
             for neighbor in self.neighbors:
@@ -112,10 +113,6 @@ class Server:
             return
         if message.type == MessageType.RequestVoteResponse and isinstance(self.role, Follower):
             return
-        
-        if message.join_upon_confirmation and message.type == MessageType.AppendEntries:
-            print(f"JOIN UPON CONFIRMATION 3. Message type: {message.type}")
-
 
         # Delegate message handling to the current role
         role_response = self.role.handle_message(message)
