@@ -131,8 +131,8 @@ def add_server_to_cluster():
     # Connect the new server to existing ones
     for existing_server_id, data in Cluster.config.items():
         existing_server = data["instance"]
-        existing_server.neighbors.add(new_server)
-        new_server.neighbors.add(existing_server)
+        existing_server.neighbors.append(new_server)
+        new_server.neighbors.append(existing_server)
 
     Cluster.config[Cluster.next_server_id] = {"instance": new_server}
     Thread(target=manage_server_lifecycle, args=(Cluster.next_server_id,), daemon=True).start()
@@ -351,7 +351,8 @@ class RaftSimulation:
         for name, server in Cluster.config.items():
             # compute hash of logs and print
             logs = server["instance"].log
-            print(f"Server {name} logs hash: {hash(str(logs))}")
+            print(f"Server {name} logs hash: {hash(str(logs))}. Length: {len(logs)}")
+            print(f"Server {name} logs: {logs}")
 
 
 # ----------------------- Main Program -----------------------

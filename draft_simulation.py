@@ -1,7 +1,7 @@
 import time
 from threading import Thread, Lock
 from random import randint
-from server_roles import Leader, Follower, Candidate, ServerState
+from server_roles import Leader, Follower, Candidate, Joining, ServerState
 from raft_server import Server
 from message import Message, MessageType
 import random
@@ -77,6 +77,10 @@ def manage_server_lifecycle(server_id):
     Manages the lifecycle and role-specific tasks of a server.
     """
     server = Cluster.config[server_id]["instance"]
+
+    while isinstance(server.role, Joining):
+        print(f"Server {server_id} is waiting to join the cluster.")
+        time.sleep(1)  # Simulate a delay before joining the cluster
     initialize_server(server, server_id)
 
     while True:
@@ -110,6 +114,8 @@ def initialize_server(server, server_id):
         server.role.assign_to_server(server)
         server.role.handle_resume()
         server.server_state = ServerState.FOLLOWER
+    elif server.server_state == ServerState.JOINING:
+        Cluster.config[server_id]["instance"].server_state = ServerState.FOLLOWER
 
 
 def shut_down_server(server, server_id):
@@ -126,17 +132,17 @@ def add_server_to_cluster():
     Adds a new server to the cluster and connects it to peers.
     """
     new_server_role = Follower()
-    new_server = Server(Cluster.next_server_id, new_server_role)
+    new_server = Server(Cluster.next_server_id, new_server_role, set(), [])
     new_server.total_nodes = Cluster.next_server_id + 1
     new_server.active_nodes += 1
 
     # Connect the new server to existing ones
     for existing_server_id, data in Cluster.config.items():
         existing_server = data["instance"]
-        existing_server.neighbors.add(new_server)
+        existing_server.neighbors.append(new_server)
         existing_server.active_nodes += 1
         new_server.active_nodes += 1
-        new_server.neighbors.add(existing_server)
+        new_server.neighbors.append(existing_server)
 
     Cluster.config[Cluster.next_server_id] = {"instance": new_server}
     Thread(target=manage_server_lifecycle, args=(Cluster.next_server_id,), daemon=True).start()
@@ -147,16 +153,16 @@ def add_request_to_join_cluster():
     Adds a request to join the cluster.
     """
     print("Adding a request to join the cluster...")
-    new_server_role = Follower()
+    new_server_role = Joining()
     new_server = Server(Cluster.next_server_id, new_server_role)
 
     # Connect the new server to existing ones
     for existing_server_id, data in Cluster.config.items():
         existing_server = data["instance"]
-        existing_server.neighbors.add(new_server)
+        existing_server.neighbors.append(new_server)
         existing_server.active_nodes += 1
         new_server.active_nodes += 1
-        new_server.neighbors.add(existing_server)
+        new_server.neighbors.append(existing_server)
 
     Cluster.config[Cluster.next_server_id] = {"instance": new_server}
     Thread(target=manage_server_lifecycle, args=(Cluster.next_server_id,), daemon=True).start()
@@ -164,6 +170,8 @@ def add_request_to_join_cluster():
 
     # Pick a random server to send the request to
     server_id = random.choice(list(Cluster.config.keys()))
+    while Cluster.config[server_id]["instance"].server_state == ServerState.DEAD or isinstance(Cluster.config[server_id]["instance"].role, Joining):
+        server_id = random.choice(list(Cluster.config.keys()))
 
     # Send a request to join the cluster
     message = Message(source=new_server.id, destination=server_id, term=Cluster.term_counter, payload=None, message_type=MessageType.RequestToJoin, join_upon_confirmation=True)
@@ -279,10 +287,13 @@ class RaftSimulation:
         """Runs the simulation for the specified duration."""
         print(f"Running simulation for {self.simulation_duration} seconds...")
         end_time = time.time() + self.simulation_duration
+        buffer_time = end_time + 5  # Add 5 seconds to allow for cleanup
 
         while time.time() < end_time:
             # Randomly send client commands to simulate activity
             server = randint(0, len(Cluster.config) - 1)
+            while Cluster.config[server]["instance"].server_state == ServerState.DEAD or isinstance(Cluster.config[server]["instance"].role, Joining):
+                server = randint(0, len(Cluster.config) - 1)
             message_data = randint(1, 100)
             self.commit_start_time = time.time()
             forward_client_request(server, message_data)
@@ -298,6 +309,21 @@ class RaftSimulation:
             self.election_times.append(election_time)
             self.total_election_time += election_time
             print(f"Leader election in progress at end of simulation. Adding {election_time:.3f} seconds to total.")
+
+        # Wait 5 seconds for any remaining messages to be processed
+        print("Simulation complete. Waiting for messages to be processed...")
+
+        failed_servers = [name for name, server in Cluster.config.items() if server["instance"].server_state == ServerState.DEAD]
+        for server_id in failed_servers:
+            resume_server(server_id)
+
+        while time.time() < buffer_time:
+            time.sleep(0.001)
+
+        # Kill all servers
+        for name, server in Cluster.config.items():
+            mark_server_as_dead(name)
+        time.sleep(1)
 
     def add_node_periodically(self):
         """Periodically adds a new node to the cluster if specified."""
@@ -375,19 +401,6 @@ class RaftSimulation:
         # Run the simulation
         self.run_simulation()
 
-        # Simulation finished... waiting for termianted servers to wake up
-        print("Simulation finished. Recovering terminated servers...")
-        
-        failed_servers = [name for name, server in Cluster.config.items() if server["instance"].server_state == ServerState.DEAD]
-        for server_id in failed_servers:
-            resume_server(server_id)
-        time.sleep(5)  # Wait for servers to resume
-
-        # Kill all servers
-        for name, server in Cluster.config.items():
-            mark_server_as_dead(name)
-        time.sleep(1)
-
         # Display benchmarks
         self.benchmark()
 
@@ -395,7 +408,7 @@ class RaftSimulation:
         for name, server in Cluster.config.items():
             # compute hash of logs and print
             logs = server["instance"].log
-            print(f"Server {name} logs hash: {hash(str(logs))}")
+            print(f"Server {name} logs hash: {hash(str(logs))}. Length: {len(logs)}")
 
 
 # ----------------------- Main Program -----------------------
