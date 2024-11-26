@@ -11,6 +11,12 @@ class Cluster:
     term_counter = 0
     config = {}
     next_server_id = 0
+
+def generate_random_ip():
+    """
+    Generates a random IP address.
+    """
+    return ".".join(str(randint(0, 255)) for _ in range(4))
     
 def process_messages_for_server(server):
     """
@@ -39,8 +45,16 @@ def leader_behavior(server):
     """
     Handles leader-specific tasks.
     """
+    HEARTBEAT_TIMEOUT = 0.5
     if time.time() >= server.role.timeout_time:
         server.role.send_heartbeat()
+    
+    # Update active nodes
+    active_nodes = set()
+    for node, last_heartbeat in server.node_activity.items():
+        if time.time() - last_heartbeat < HEARTBEAT_TIMEOUT:
+            active_nodes.add(node)
+    server.active_nodes = active_nodes
 
 
 def candidate_behavior(server):
@@ -109,6 +123,7 @@ def initialize_server(server, server_id):
         server.role.assign_to_server(server)
         server.role.handle_resume()
         server.server_state = ServerState.FOLLOWER
+        
 
 
 def shut_down_server(server, server_id):
@@ -124,8 +139,9 @@ def add_server_to_cluster():
     """
     Adds a new server to the cluster and connects it to peers.
     """
+    ip = generate_random_ip()
     new_server_role = Follower()
-    new_server = Server(Cluster.next_server_id, new_server_role)
+    new_server = Server(Cluster.next_server_id, new_server_role, ip, set(), [])
     new_server.total_nodes = Cluster.next_server_id + 1
 
     # Connect the new server to existing ones
@@ -352,7 +368,7 @@ class RaftSimulation:
         for name, server in Cluster.config.items():
             # compute hash of logs and print
             logs = server["instance"].log
-            print(f"Server {name} logs hash: {hash(str(logs[:last_commit_index]))}, log length: {len(logs)}")
+            print(f"Server {name} logs hash: {hash(str(logs))}, log length: {len(logs)}")
 
 
 # ----------------------- Main Program -----------------------

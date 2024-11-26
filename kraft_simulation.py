@@ -259,7 +259,7 @@ def display_logs_for_server(server_id):
 # ----------------------- Simulation Framework -----------------------
 
 class RaftSimulation:
-    def __init__(self, num_servers, simulation_duration, leader_fail_frequency=None, leader_recover_frequency=None, add_node_frequency=None, quiet=False):
+    def __init__(self, num_servers, simulation_duration, leader_fail_frequency=None, leader_recover_frequency=None, add_node_frequency=None, fail_node_frequency=None, quiet=False):
         """
         Initializes the simulation.
 
@@ -274,6 +274,7 @@ class RaftSimulation:
         self.leader_fail_frequency = leader_fail_frequency
         self.leader_recover_frequency = leader_recover_frequency
         self.add_node_frequency = add_node_frequency
+        self.fail_node_frequency = fail_node_frequency
         self.start_time = None
         self.total_election_time = 0  # Total time spent in leader elections
         self.election_times = []
@@ -346,17 +347,8 @@ class RaftSimulation:
         # Wait 5 seconds for any remaining messages to be processed
         print("Simulation complete. Waiting for messages to be processed...")
 
-        failed_servers = [name for name, server in Cluster.config.items() if server["instance"].server_state == ServerState.DEAD]
-        for server_id in failed_servers:
-            resume_server(server_id)
-
         while time.time() < buffer_time:
             time.sleep(0.001)
-
-        # Kill all servers
-        for name, server in Cluster.config.items():
-            mark_server_as_dead(name)
-        time.sleep(1)
 
 
     def add_node_periodically(self):
@@ -390,6 +382,23 @@ class RaftSimulation:
                     self.wait_for_election_completion()
 
         Thread(target=fail_leader, daemon=True).start()
+
+    def fail_node_periodically(self):
+        """Periodically fails a random node if specified."""
+        if not self.fail_node_frequency:
+            return
+
+        end_time = time.time() + self.simulation_duration
+
+        def fail_node():
+            while time.time() < end_time:
+                time.sleep(self.fail_node_frequency)
+                server_id = random.choice(list(Cluster.config.keys()))
+                if Cluster.config[server_id]["instance"].server_state != ServerState.DEAD:
+                    print(f"Simulating failure for server {server_id}...")
+                    mark_server_as_dead(server_id)
+
+        Thread(target=fail_node, daemon=True).start()
 
     def recover_leader_periodically(self):
         """Periodically recovers failed leaders if specified."""
@@ -429,8 +438,9 @@ class RaftSimulation:
 
         # Start periodic leader failure/recovery if specified (and now addition)
         # self.fail_leader_periodically()
-        # self.recover_leader_periodically()
+        self.recover_leader_periodically()
         self.add_node_periodically()
+        self.fail_node_periodically()
 
         # Run the simulation
         self.run_simulation()
@@ -439,13 +449,12 @@ class RaftSimulation:
         self.benchmark()
 
         # Display each servers logs
-        last_commit_index = min([len(server["instance"].log) for server in Cluster.config.values()])
-        print(f"Committed {last_commit_index} entries.")
         for name, server in Cluster.config.items():
             # compute hash of logs and print
-            logs = server["instance"].log
-            print(f"Server {name} logs hash: {hash(str(logs))}, log length: {len(logs)}")
-            # print(f"Server {name} logs: {logs}\n")
+            if server["instance"].server_state != ServerState.DEAD and server["instance"].server_state != ServerState.JOINING:
+                logs = server["instance"].log
+                print(f"Server {name} logs hash: {hash(str(logs))}, log length: {len(logs)}")
+                # print(f"Server {name} logs: {logs}\n")
 
 
 # ----------------------- Main Program -----------------------
@@ -454,9 +463,10 @@ if __name__ == "__main__":
     # Parameters for the simulation
     num_servers = 10
     simulation_duration = 30  # Run simulation for 30 seconds
-    leader_fail_frequency = 5  # Fail leader every 5 seconds
-    leader_recover_frequency = 8  # Recover leader every 10 seconds
-    add_node_frequency = 10  # Add a new node every 10 seconds
+    leader_fail_frequency = 3  # Fail leader every 3 seconds
+    leader_recover_frequency = 6  # Recover leader every 6 seconds
+    add_node_frequency = 6  # Add a new node every 6 seconds
+    fail_node_frequency = 2  # Fail a random node every 5 seconds
     quiet = True  # Enable quiet mode
 
     # Initialize and run the simulation
@@ -466,6 +476,7 @@ if __name__ == "__main__":
         leader_fail_frequency=leader_fail_frequency,
         leader_recover_frequency=leader_recover_frequency,
         add_node_frequency=add_node_frequency,
+        fail_node_frequency=fail_node_frequency,
         quiet=quiet
     )
     simulation.run()
