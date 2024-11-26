@@ -41,3 +41,6 @@ class Message:
         :param unpack_time: The new time at which the message can be unpacked and read
         """
         self.unpack_time = unpack_time
+
+    def __hash__(self):
+        return hash((self.src, self.dst, self.term, self.type, self.timestamp))

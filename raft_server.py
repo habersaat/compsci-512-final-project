@@ -79,7 +79,7 @@ class Server:
         """
         Returns the next ready message if its unpack_time has passed.
         """
-    
+        
         if not self.message_queue.empty():
             unpack_time, message = self.message_queue.queue[0]  # Peek at the first item
             message_timestamp = message.timestamp
@@ -102,8 +102,13 @@ class Server:
         else:
             # Broadcast to all neighbors
             for neighbor in self.neighbors:
-                if neighbor.server_state != ServerState.DEAD and neighbor.server_state != ServerState.JOINING:
+                if neighbor.server_state != ServerState.DEAD and neighbor.server_state != ServerState.JOINING and neighbor.id != self.id:
                     message.dst = neighbor.id
+                    # I have scoured the ends of the earth to find this bug. I have not been successul. I am sorry.
+                    # if message.type == MessageType.AppendEntries and not message.payload["entries"] and not message.payload["last_log_term"]:
+                    #     break
+                    # if message.type == MessageType.AppendEntries:
+                    #     print(f"Server {self.id} sent AppendEntries to {neighbor.id}: {message.payload}")
                     self.simulate_network_conditions(neighbor, message)
 
     def handle_message(self, message):
@@ -133,7 +138,6 @@ class Server:
         leader = self.get_leader()
 
         if leader:
-            # Forward the command to the leader
             message = Message(
                 source=self.id,
                 destination=leader.id,
