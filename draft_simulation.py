@@ -12,6 +12,14 @@ class Cluster:
     config = {}
     next_server_id = 0
     lock = Lock()
+    all_nodes = set()
+
+
+def generate_random_ip():
+    """
+    Generates a random IP address.
+    """
+    return ".".join(str(randint(0, 255)) for _ in range(4))
     
 def process_messages_for_server(server):
     """
@@ -42,8 +50,16 @@ def leader_behavior(server):
     """
     Handles leader-specific tasks.
     """
+    HEARTBEAT_TIMEOUT = 0.5
     if time.time() >= server.role.timeout_time:
         server.role.send_heartbeat()
+    
+    # Update active nodes
+    active_nodes = set()
+    for node, last_heartbeat in server.node_activity.items():
+        if time.time() - last_heartbeat < HEARTBEAT_TIMEOUT:
+            active_nodes.add(node)
+    server.active_nodes = active_nodes
 
 
 def candidate_behavior(server):
@@ -135,10 +151,10 @@ def add_server_to_cluster():
     """
     Adds a new server to the cluster and connects it to peers.
     """
+    ip = generate_random_ip()
     new_server_role = Follower()
-    new_server = Server(Cluster.next_server_id, new_server_role, set(), [])
+    new_server = Server(Cluster.next_server_id, new_server_role, ip, set(), [])
     new_server.total_nodes = Cluster.next_server_id + 1
-    new_server.active_nodes += 1
 
     with Cluster.lock:
         cluster_config = list(Cluster.config.items())
@@ -147,21 +163,23 @@ def add_server_to_cluster():
     for existing_server_id, data in cluster_config:
         existing_server = data["instance"]
         existing_server.neighbors.append(new_server)
-        existing_server.active_nodes += 1
-        new_server.active_nodes += 1
         new_server.neighbors.append(existing_server)
+        existing_server.total_nodes += 1
 
     Cluster.config[Cluster.next_server_id] = {"instance": new_server}
     Thread(target=manage_server_lifecycle, args=(Cluster.next_server_id,), daemon=True).start()
     Cluster.next_server_id += 1
+
+    Cluster.all_nodes.add(new_server.id)
 
 def add_request_to_join_cluster():
     """
     Adds a request to join the cluster.
     """
     print("Adding a request to join the cluster...")
+    ip = generate_random_ip()
     new_server_role = Joining()
-    new_server = Server(Cluster.next_server_id, new_server_role)
+    new_server = Server(Cluster.next_server_id, new_server_role, ip, set(), [])
 
     with Cluster.lock:
         cluster_config = list(Cluster.config.items())
@@ -170,9 +188,8 @@ def add_request_to_join_cluster():
     for existing_server_id, data in cluster_config:
         existing_server = data["instance"]
         existing_server.neighbors.append(new_server)
-        existing_server.active_nodes += 1
-        new_server.active_nodes += 1
         new_server.neighbors.append(existing_server)
+        existing_server.total_nodes += 1
 
     with Cluster.lock:
         Cluster.config[Cluster.next_server_id] = {"instance": new_server}
@@ -189,6 +206,8 @@ def add_request_to_join_cluster():
     # Send a request to join the cluster
     message = Message(source=new_server.id, destination=server_id, term=Cluster.term_counter, payload=None, message_type=MessageType.RequestToJoin, join_upon_confirmation=True)
     new_server.send_message(message, target_id=server_id)
+
+    Cluster.all_nodes.add(new_server.id)
 
     print(f"Server {new_server.id} sent a request to join the cluster to server {server_id}.")
 
@@ -440,8 +459,8 @@ if __name__ == "__main__":
     # Parameters for the simulation
     num_servers = 10
     simulation_duration = 30  # Run simulation for 30 seconds
-    leader_fail_frequency = None  # Fail leader every 5 seconds
-    leader_recover_frequency = None  # Recover leader every 10 seconds
+    leader_fail_frequency = 5  # Fail leader every 5 seconds
+    leader_recover_frequency = 8  # Recover leader every 10 seconds
     add_node_frequency = 10  # Add a new node every 10 seconds
     quiet = True  # Enable quiet mode
 

@@ -28,8 +28,9 @@ class Role:
             self.server.current_term = message.term
             return True
         elif message.term < self.server.current_term:
-            self.send_response(message, is_accepted=False)
-            return True
+            message.term = self.server.current_term
+            # self.send_response(message, is_accepted=False)
+            # return True
         return False
 
     def handle_message(self, message):
@@ -94,21 +95,6 @@ class Role:
 
     def process_join_request(self, message):
         """Redirect the join request to the leader."""
-        leader = self.server.get_leader()
-        if leader:
-            join_request_message = Message(
-                message.src,
-                leader.id,
-                message.term,
-                message.payload,
-                MessageType.RequestToJoin,
-                join_upon_confirmation=message.join_upon_confirmation
-            )
-            print(f"Server {self.server.id} is redirecting join request to leader {leader.id}")
-            self.server.send_message(join_request_message, target_id=leader.id)
-        else:
-            print(f"Server {self.server.id} has no leader to process join request")
-        return self, None
 
     def on_leader_timeout(self, message):
         """This is called when the leader timeout is reached."""
@@ -133,6 +119,9 @@ class Role:
     
     def handle_add_to_cluster(self, message):
         """This is called when a server is added to the cluster."""
+
+    def send_heartbeat(self):
+        """This is called when the leader/follower sends a heartbeat."""
 
 
 class Follower(Role):
@@ -210,7 +199,10 @@ class Follower(Role):
 
         self.timeout_time = self.next_timeout()
 
-        # print(f"Server {self.server.id} is processing command {message.payload['entries']}. Timestamp on message is {message.timestamp}")
+        if "is_heartbeat" in message.payload:
+            self.server.active_nodes = message.payload["active_nodes"] if message.payload["active_nodes"] else self.server.active_nodes
+            self.send_heartbeat()
+            return self, None
 
         # Check for term mismatch
         if message.term < self.server.current_term:
@@ -234,6 +226,7 @@ class Follower(Role):
         """Validate the log entries in the append entries payload."""
         log = self.server.log
 
+        # print(f"Last log index: {payload['last_log_index']}, Last log term: {payload['last_log_term']}")
         if payload["last_log_index"] == -1:
             return True
         if payload["last_log_index"] > -1 and len(log) <= payload["last_log_index"]:
@@ -260,11 +253,49 @@ class Follower(Role):
             self.server.last_log_index = len(log) - 1
             self.server.last_log_term = log[-1]["term"]
             self.server.log = log
+
+            # print(f"Sending ack to leader for log index {self.server.last_log_index}")
             self.send_response(message, is_accepted=True)
         
     def execute_client_command(self, message):
         return self, None
+    
+    def process_join_request(self, message):
+        """Redirect the join request to the leader."""
+        leader = self.server.get_leader()
+        if leader:
+            join_request_message = Message(
+                message.src,
+                leader.id,
+                message.term,
+                message.payload,
+                MessageType.RequestToJoin,
+                join_upon_confirmation=message.join_upon_confirmation
+            )
+            print(f"Server {self.server.id} is redirecting join request from {message.src} to leader {leader.id}")
+            # print(f"Message src: {message.src}, dst {leader.id}, term {message.term}, payload {message.payload}, type {MessageType.RequestToJoin}")
+            self.server.send_message(join_request_message, leader.id)
 
+    def send_heartbeat(self):
+        """Sends a heartbeat message to the leader."""
+        leader = self.find_current_leader()
+        if leader:
+            heartbeat_message = Message(
+                self.server.id,
+                leader.id,
+                self.server.current_term,
+                {
+                    "leader_id": self.server.id,
+                    "last_log_index": self.server.last_log_index,
+                    "last_log_term": self.server.last_log_term,
+                    "entries": [],
+                    "leader_commit": self.server.commit_index,
+                    "is_heartbeat": True,
+                    "active_nodes": self.server.active_nodes
+                },
+                MessageType.AppendEntries,
+            )
+            self.server.send_message(heartbeat_message, leader.id)
 
 class Candidate(Role):
     def __init__(self):
@@ -306,6 +337,8 @@ class Candidate(Role):
 
     def has_majority(self):
         """Checks if the candidate has received the majority of votes."""
+        # print(f"Server {self.server.id} has {len(self.votes)} votes. Total Majority: {(self.server.total_nodes // 2) + 1}. Active Majority: {(len(self.server.active_nodes) // 2) + 1}")
+        # print(f"Server {self.server.id} has active nodes: {self.server.active_nodes}")
         return len(self.votes) >= (self.server.total_nodes // 2) + 1
 
     def promote_to_leader(self):
@@ -338,7 +371,7 @@ class Candidate(Role):
     def prepare_for_election(self):
         """Prepares the candidate for a new election cycle."""
         print(f"Server {self.server.id} is starting election")
-        self.timeout_time = time.time() + randint(1, 2) # Change based on number of nodes and network latency
+        self.timeout_time = time.time() + randint(1, 4) # Change based on number of nodes and network latency
         self.votes = {}
         self.server.current_term += 1
 
@@ -374,6 +407,7 @@ class Leader(Role):
         """Initialize leader-specific configurations for the server."""
         self.server = server
         self.initialize_log_indexes()
+        # print(f"Leader Server has active nodes: {self.server.active_nodes}")
 
     def initialize_log_indexes(self):
         """Sets up the next and match indexes for all followers."""
@@ -421,7 +455,6 @@ class Leader(Role):
     def execute_client_command(self, message):
         """Processes a client command and initiates log replication."""
         log_entry = self.create_log_entry(message.payload["command"])
-        # print(f"Leader Server {self.server.id} received client command: {message.payload['command']}")
         self.update_server_log(log_entry)
         self.notify_followers(log_entry)
         return self, None
@@ -460,14 +493,13 @@ class Leader(Role):
             self.server.current_term,
             {
                 "leader_id": self.server.id,
-                "last_log_index": self.server.last_log_index,
+                "last_log_index": self.server.last_log_index-1,
                 "last_log_term": self.server.last_log_term,
                 "entries": [log_entry],
                 "leader_commit": self.server.commit_index,
             },
             MessageType.AppendEntries
         )
-        # print(f"Leader Server {self.server.id} is sending AppendEntries to all followers")
         self.server.send_message(append_message)
 
     def send_heartbeat(self):
@@ -475,6 +507,7 @@ class Leader(Role):
         self.timeout_time = self.next_timeout()
         heartbeat_message = self.create_heartbeat_message()
         self.broadcast_message_to_all(heartbeat_message)
+        print(f"Leader Server {self.server.id} is sending heartbeat with node activity: {self.server.active_nodes}")
 
     def create_heartbeat_message(self):
         """Creates a heartbeat message."""
@@ -488,6 +521,8 @@ class Leader(Role):
                 "last_log_term": self.server.last_log_term,
                 "entries": [],
                 "leader_commit": self.server.commit_index,
+                "is_heartbeat": True,
+                "active_nodes": self.server.active_nodes
             },
             MessageType.AppendEntries,
         )
@@ -495,8 +530,7 @@ class Leader(Role):
 
     def broadcast_message_to_all(self, message):
         """Broadcasts a message to all followers."""
-        for neighbor in self.server.neighbors:
-            self.server.send_message(message, target_id=neighbor.id)
+        self.server.send_message(message)
 
     def process_response(self, response_message):
         """Processes a response from a follower."""
@@ -519,7 +553,6 @@ class Leader(Role):
         # Update match_indexes to reflect the latest replicated entry
         latest_index = max(-1, self.next_indexes[follower_id] - 1)
         self.match_indexes[follower_id] = latest_index
-        # print(f"match_indexes: {self.match_indexes}")
 
         # Advance next index after successful replication
         self.advance_next_index(follower_id)
@@ -531,6 +564,7 @@ class Leader(Role):
         """Advances the next index for a follower after successful replication."""
         num_messages = len(self.pending_messages[follower_id])
         self.next_indexes[follower_id] += num_messages
+        # print(f"Leader Server {self.server.id} has advanced next index for Server {follower_id} to {self.next_indexes[follower_id]}")
 
     def update_commit_index(self):
         """Commits log entries if a majority of followers acknowledge."""
@@ -544,7 +578,7 @@ class Leader(Role):
         """Checks if a log entry is acknowledged by the majority."""
         acknowledgment_count = sum(1 for follower in self.server.neighbors
                                     if self.match_indexes[follower.id] >= log_index)
-        print(f"Server {self.server.id} has {acknowledgment_count} acknowledgments for log index {log_index}")
+        # print(f"Server {self.server.id} has {acknowledgment_count} acknowledgments for log index {log_index}")
         return acknowledgment_count > len(self.server.neighbors) // 2
 
     def calculate_next_timeout(self):
@@ -557,7 +591,7 @@ class Leader(Role):
             print(f"Leader Server {self.server.id}: Server {message.src} is already in the cluster.")
             return self, None
         
-        print(f"Leader Server {self.server.id} received join request from {message.src}")
+        # print(f"Leader Server {self.server.id} received join request from {message.src}")
         self.sync_log_with_follower(message.src, join_upon_confirmation=True)
         return self, None
 
@@ -565,6 +599,19 @@ class Leader(Role):
         """Add a new server to the cluster."""
         new_server_id = message.src
         print(f"Leader Server {self.server.id} has added Server {new_server_id} to the cluster")
+
+    def process_append_entries(self, message):
+        # Check if this is a heartbeat message
+        if "is_heartbeat" in message.payload:
+            self.update_heartbeat_timestamp(message)
+            return self, None
+        else:
+            return self, None
+        
+    def update_heartbeat_timestamp(self, message):
+        """Update the heartbeat timestamp for a follower."""
+        self.server.node_activity[message.src] = time.time()
+
 
 class Joining(Role):
     def __init__(self, timeout=1):
