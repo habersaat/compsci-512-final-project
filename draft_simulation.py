@@ -1,9 +1,9 @@
 import time
 from threading import Thread, Lock
 from random import randint
-from server_roles import Leader, Follower, Candidate, ServerState
+from server_roles import Leader, Follower, Candidate, Joining, ServerState
 from raft_server import Server
-from message import Message
+from message import Message, MessageType
 import random
 import logging
 
@@ -11,6 +11,7 @@ class Cluster:
     term_counter = 0
     config = {}
     next_server_id = 0
+    lock = Lock()
     
 def process_messages_for_server(server):
     """
@@ -29,7 +30,9 @@ def monitor_all_servers():
     """
     while True:
         time.sleep(0.001)
-        for server_id, server_data in Cluster.config.items():
+        with Cluster.lock:
+            cluster_config = list(Cluster.config.items())
+        for server_id, server_data in cluster_config:
             server = server_data["instance"]
             if server.server_state != ServerState.DEAD:
                 process_messages_for_server(server)
@@ -58,6 +61,7 @@ def follower_behavior(server):
     Handles follower-specific tasks.
     """
     if Cluster.term_counter >= 1 and time.time() >= server.role.timeout_time:
+        print(f"Server {server.id} timed out waiting for heartbeat. Timestamp: {time.time()}. Starting election...")
         server.server_state = ServerState.CANDIDATE
 
 
@@ -65,7 +69,7 @@ def promote_to_candidate(server):
     """
     Converts a follower to a candidate and starts an election.
     """
-    time.sleep(randint(1, 10)) # Change based on number of servers or network conditions
+    time.sleep(2) # Change based on number of servers or network conditions
     if server.server_state == ServerState.CANDIDATE:
         server.role = Candidate()
         server.role.assign_to_server(server)
@@ -75,7 +79,12 @@ def manage_server_lifecycle(server_id):
     """
     Manages the lifecycle and role-specific tasks of a server.
     """
-    server = Cluster.config[server_id]["instance"]
+    with Cluster.lock:
+        server = Cluster.config[server_id]["instance"]
+
+    while isinstance(server.role, Joining):
+        print(f"Server {server_id} is waiting to join the cluster.")
+        time.sleep(1)  # Simulate a delay before joining the cluster
     initialize_server(server, server_id)
 
     while True:
@@ -94,7 +103,7 @@ def manage_server_lifecycle(server_id):
         if server.server_state == ServerState.CANDIDATE and not isinstance(server.role, Candidate):
             promote_to_candidate(server)
 
-        time.sleep(0.001)
+        time.sleep(0.001) # Avoid tight polling
 
 
 def initialize_server(server, server_id):
@@ -109,6 +118,8 @@ def initialize_server(server, server_id):
         server.role.assign_to_server(server)
         server.role.handle_resume()
         server.server_state = ServerState.FOLLOWER
+    elif server.server_state == ServerState.JOINING:
+        Cluster.config[server_id]["instance"].server_state = ServerState.FOLLOWER
 
 
 def shut_down_server(server, server_id):
@@ -125,18 +136,61 @@ def add_server_to_cluster():
     Adds a new server to the cluster and connects it to peers.
     """
     new_server_role = Follower()
-    new_server = Server(Cluster.next_server_id, new_server_role)
+    new_server = Server(Cluster.next_server_id, new_server_role, set(), [])
     new_server.total_nodes = Cluster.next_server_id + 1
+    new_server.active_nodes += 1
+
+    with Cluster.lock:
+        cluster_config = list(Cluster.config.items())
 
     # Connect the new server to existing ones
-    for existing_server_id, data in Cluster.config.items():
+    for existing_server_id, data in cluster_config:
         existing_server = data["instance"]
         existing_server.neighbors.append(new_server)
+        existing_server.active_nodes += 1
+        new_server.active_nodes += 1
         new_server.neighbors.append(existing_server)
 
     Cluster.config[Cluster.next_server_id] = {"instance": new_server}
     Thread(target=manage_server_lifecycle, args=(Cluster.next_server_id,), daemon=True).start()
     Cluster.next_server_id += 1
+
+def add_request_to_join_cluster():
+    """
+    Adds a request to join the cluster.
+    """
+    print("Adding a request to join the cluster...")
+    new_server_role = Joining()
+    new_server = Server(Cluster.next_server_id, new_server_role)
+
+    with Cluster.lock:
+        cluster_config = list(Cluster.config.items())
+
+    # Connect the new server to existing ones
+    for existing_server_id, data in cluster_config:
+        existing_server = data["instance"]
+        existing_server.neighbors.append(new_server)
+        existing_server.active_nodes += 1
+        new_server.active_nodes += 1
+        new_server.neighbors.append(existing_server)
+
+    with Cluster.lock:
+        Cluster.config[Cluster.next_server_id] = {"instance": new_server}
+    Thread(target=manage_server_lifecycle, args=(Cluster.next_server_id,), daemon=True).start()
+    Cluster.next_server_id += 1
+
+    # Pick a random server to send the request to
+    with Cluster.lock:
+        server_id = random.choice(list(Cluster.config.keys()))
+    while Cluster.config[server_id]["instance"].server_state == ServerState.DEAD or isinstance(Cluster.config[server_id]["instance"].role, Joining):
+        with Cluster.lock:
+            server_id = random.choice(list(Cluster.config.keys()))
+
+    # Send a request to join the cluster
+    message = Message(source=new_server.id, destination=server_id, term=Cluster.term_counter, payload=None, message_type=MessageType.RequestToJoin, join_upon_confirmation=True)
+    new_server.send_message(message, target_id=server_id)
+
+    print(f"Server {new_server.id} sent a request to join the cluster to server {server_id}.")
 
 
 def mark_server_as_dead(server_id):
@@ -167,7 +221,10 @@ def start_election():
     Initiates an election in the cluster.
     """
 
-    for server_data in Cluster.config.values():
+    with Cluster.lock:
+        cluster_values = list(Cluster.config.values())
+
+    for server_data in cluster_values:
         server = server_data["instance"]
         if server.server_state == ServerState.FOLLOWER:
             server.server_state = ServerState.CANDIDATE
@@ -185,7 +242,7 @@ def display_logs_for_server(server_id):
 # ----------------------- Simulation Framework -----------------------
 
 class RaftSimulation:
-    def __init__(self, num_servers, simulation_duration, leader_fail_frequency=None, leader_recover_frequency=None, quiet=False):
+    def __init__(self, num_servers, simulation_duration, leader_fail_frequency=None, leader_recover_frequency=None, add_node_frequency=None, quiet=False):
         """
         Initializes the simulation.
 
@@ -199,6 +256,7 @@ class RaftSimulation:
         self.simulation_duration = simulation_duration
         self.leader_fail_frequency = leader_fail_frequency
         self.leader_recover_frequency = leader_recover_frequency
+        self.add_node_frequency = add_node_frequency
         self.start_time = None
         self.total_election_time = 0  # Total time spent in leader elections
         self.election_times = []
@@ -212,17 +270,16 @@ class RaftSimulation:
         Thread(target=monitor_all_servers, daemon=True).start()
 
         # Spawn servers
-        for _ in range(self.num_servers):
+        for i in range(self.num_servers):
             add_server_to_cluster()
+            time.sleep(0.5)
+            
+            if i == 2:
+                print("3 servers have been added. Initiating the first election...")
+                self.start_time = time.time()
+                start_election()
+                self.wait_for_election_completion()
 
-        # Wait for servers to initialize
-        time.sleep(0.25)
-
-        # Start the first election and benchmark it
-        print("Initiating the first election...")
-        self.start_time = time.time()
-        start_election()
-        self.wait_for_election_completion()
 
     def wait_for_election_completion(self):
         """
@@ -246,11 +303,14 @@ class RaftSimulation:
         """Runs the simulation for the specified duration."""
         print(f"Running simulation for {self.simulation_duration} seconds...")
         end_time = time.time() + self.simulation_duration
+        buffer_time = end_time + 5  # Add 5 seconds to allow for cleanup
 
         while time.time() < end_time:
             # Randomly send client commands to simulate activity
             server = randint(0, len(Cluster.config) - 1)
-            message_data = randint(1, 10000)
+            while Cluster.config[server]["instance"].server_state == ServerState.DEAD or isinstance(Cluster.config[server]["instance"].role, Joining):
+                server = randint(0, len(Cluster.config) - 1)
+            message_data = randint(1, 100000)
             self.commit_start_time = time.time()
             forward_client_request(server, message_data)
 
@@ -266,6 +326,33 @@ class RaftSimulation:
             self.total_election_time += election_time
             print(f"Leader election in progress at end of simulation. Adding {election_time:.3f} seconds to total.")
 
+        # Wait 5 seconds for any remaining messages to be processed
+        print("Simulation complete. Waiting for messages to be processed...")
+
+        failed_servers = [name for name, server in Cluster.config.items() if server["instance"].server_state == ServerState.DEAD]
+        for server_id in failed_servers:
+            resume_server(server_id)
+
+        while time.time() < buffer_time:
+            time.sleep(0.001)
+
+        # Kill all servers
+        for name, server in Cluster.config.items():
+            mark_server_as_dead(name)
+        time.sleep(1)
+
+
+    def add_node_periodically(self):
+        """Periodically adds a new node to the cluster if specified."""
+        if not self.add_node_frequency:
+            return
+
+        def add_node():
+            while True:
+                time.sleep(self.add_node_frequency)
+                add_request_to_join_cluster()
+
+        Thread(target=add_node, daemon=True).start()
 
     def fail_leader_periodically(self):
         """Periodically fails the leader if specified."""
@@ -323,25 +410,13 @@ class RaftSimulation:
         """Runs the entire simulation."""
         self.initialize_cluster()
 
-        # Start periodic leader failure/recovery if specified
-        self.fail_leader_periodically()
-        self.recover_leader_periodically()
+        # Start periodic leader failure/recovery if specified (and now addition)
+        # self.fail_leader_periodically()
+        # self.recover_leader_periodically()
+        self.add_node_periodically()
 
         # Run the simulation
         self.run_simulation()
-
-        # Simulation finished... waiting for termianted servers to wake up
-        print("Simulation finished. Recovering terminated servers...")
-        
-        failed_servers = [name for name, server in Cluster.config.items() if server["instance"].server_state == ServerState.DEAD]
-        for server_id in failed_servers:
-            resume_server(server_id)
-        time.sleep(5)  # Wait for servers to resume
-
-        # Kill all servers
-        for name, server in Cluster.config.items():
-            mark_server_as_dead(name)
-        time.sleep(1)
 
         # Display benchmarks
         self.benchmark()
@@ -353,6 +428,7 @@ class RaftSimulation:
             # compute hash of logs and print
             logs = server["instance"].log
             print(f"Server {name} logs hash: {hash(str(logs[:last_commit_index]))}, log length: {len(logs)}")
+            # print(f"Server {name} logs: {logs}\n")
 
 
 # ----------------------- Main Program -----------------------
@@ -361,8 +437,9 @@ if __name__ == "__main__":
     # Parameters for the simulation
     num_servers = 10
     simulation_duration = 30  # Run simulation for 30 seconds
-    leader_fail_frequency = 5  # Fail leader every 5 seconds
-    leader_recover_frequency = 12  # Recover leader every 10 seconds
+    leader_fail_frequency = None  # Fail leader every 5 seconds
+    leader_recover_frequency = None  # Recover leader every 10 seconds
+    add_node_frequency = 10  # Add a new node every 10 seconds
     quiet = True  # Enable quiet mode
 
     # Initialize and run the simulation
@@ -371,6 +448,7 @@ if __name__ == "__main__":
         simulation_duration=simulation_duration,
         leader_fail_frequency=leader_fail_frequency,
         leader_recover_frequency=leader_recover_frequency,
+        add_node_frequency=add_node_frequency,
         quiet=quiet
     )
     simulation.run()

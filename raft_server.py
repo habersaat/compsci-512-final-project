@@ -1,20 +1,22 @@
-from server_roles import Leader, Follower, ServerState
+from server_roles import Leader, Follower, Candidate, Joining, ServerState
 from message import Message, MessageType
 from random import randint
 import random
 import time
 from queue import PriorityQueue
-
+from threading import Lock
 
 class Server:
-    def __init__(self, node_id, role, neighbors=[], log=[], commit_index=-1, latency_range=(0.0, 0.0), retransmission_chance=0.0):
+    def __init__(self, node_id, role, neighbors=None, log=None, commit_index=-1, latency_range=(0.0, 0.0), retransmission_chance=0.0):
         self.id = node_id                               # Unique identifier for the server
         self.role = role                                # Role of the server (Leader, Follower, Candidate)
-        self.server_state = ServerState.FOLLOWER        # Default server state is Follower
-        self.neighbors = neighbors                      # List of peer servers
-        self.log = log                                  # Log entries for Raft
+        self.server_state = ServerState.FOLLOWER if isinstance(role, Follower) else ServerState.LEADER if isinstance(role, Leader) else ServerState.CANDIDATE if isinstance(role, Candidate) else ServerState.JOINING if isinstance(role, Joining) else ServerState.DEAD
+        self.neighbors = neighbors if neighbors else [] # Neighbors of the server
+        self.log = log if log else []                   # Log of entries for the server
         self.message_queue = PriorityQueue()            # Priority Queue for incoming messages (sorted by unpack_time)
+        self.message_queue_lock = Lock()                # Lock for the message queue
         self.total_nodes = 0                            # Total number of nodes in the cluster
+        self.active_nodes = 0                           # Number of active nodes in the cluster
 
         # Indexes for Raft Algorithm
         self.commit_index = commit_index                # Index of the last committed log entry
@@ -76,6 +78,7 @@ class Server:
         """
         Returns the next ready message if its unpack_time has passed.
         """
+        
         if not self.message_queue.empty():
             unpack_time, message = self.message_queue.queue[0]  # Peek at the first item
             message_timestamp = message.timestamp
@@ -88,16 +91,30 @@ class Server:
         """
         Sends a message to a specific neighbor or broadcasts to all neighbors.
         """
+
+        # print(f"Server {self.id} sending message to {target_id if target_id else 'all neighbors'}: {message.payload}")
+
+        if message.type == MessageType.RequestToJoin and not target_id:
+            # Not sure where this is coming from but this fixes it
+            # print(f"Server {self.id} sending RequestToJoin to {target_id if target_id else 'all neighbors'}: {message.payload}")
+            return
+
         if target_id:
             # Send to a specific neighbor
             for neighbor in self.neighbors:
                 if neighbor.id == message.dst:
                     self.simulate_network_conditions(neighbor, message)
+                    break
         else:
             # Broadcast to all neighbors
             for neighbor in self.neighbors:
-                if neighbor.server_state != ServerState.DEAD:
+                if neighbor.server_state != ServerState.DEAD and neighbor.server_state != ServerState.JOINING and neighbor.id != self.id:
                     message.dst = neighbor.id
+                    # I have scoured the ends of the earth to find this bug. I have not been successul. I am sorry.
+                    # if message.type == MessageType.AppendEntries and not message.payload["entries"] and not message.payload["last_log_term"]:
+                    #     break
+                    # if message.type == MessageType.AppendEntries:
+                    #     print(f"Server {self.id} sent AppendEntries to {neighbor.id}: {message.payload}")
                     self.simulate_network_conditions(neighbor, message)
 
     def handle_message(self, message):
@@ -127,7 +144,6 @@ class Server:
         leader = self.get_leader()
 
         if leader:
-            # Forward the command to the leader
             message = Message(
                 source=self.id,
                 destination=leader.id,
