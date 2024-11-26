@@ -166,7 +166,6 @@ def start_election():
     """
     Initiates an election in the cluster.
     """
-    print("did someone say election?")
 
     for server_data in Cluster.config.values():
         server = server_data["instance"]
