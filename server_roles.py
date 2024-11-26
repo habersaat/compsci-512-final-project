@@ -200,7 +200,7 @@ class Follower(Role):
         self.timeout_time = self.next_timeout()
 
         if "is_heartbeat" in message.payload:
-            self.server.active_nodes = message.payload["active_nodes"]
+            self.server.active_nodes = message.payload["active_nodes"] if message.payload["active_nodes"] else self.server.active_nodes
             self.send_heartbeat()
             return self, None
 
@@ -337,6 +337,8 @@ class Candidate(Role):
 
     def has_majority(self):
         """Checks if the candidate has received the majority of votes."""
+        # print(f"Server {self.server.id} has {len(self.votes)} votes. Total Majority: {(self.server.total_nodes // 2) + 1}. Active Majority: {(len(self.server.active_nodes) // 2) + 1}")
+        # print(f"Server {self.server.id} has active nodes: {self.server.active_nodes}")
         return len(self.votes) >= (self.server.total_nodes // 2) + 1
 
     def promote_to_leader(self):
@@ -369,7 +371,7 @@ class Candidate(Role):
     def prepare_for_election(self):
         """Prepares the candidate for a new election cycle."""
         print(f"Server {self.server.id} is starting election")
-        self.timeout_time = time.time() + randint(1, 2) # Change based on number of nodes and network latency
+        self.timeout_time = time.time() + randint(1, 4) # Change based on number of nodes and network latency
         self.votes = {}
         self.server.current_term += 1
 
@@ -405,7 +407,7 @@ class Leader(Role):
         """Initialize leader-specific configurations for the server."""
         self.server = server
         self.initialize_log_indexes()
-        print(f"Leader Server has active nodes: {self.server.active_nodes}")
+        # print(f"Leader Server has active nodes: {self.server.active_nodes}")
 
     def initialize_log_indexes(self):
         """Sets up the next and match indexes for all followers."""
@@ -505,7 +507,7 @@ class Leader(Role):
         self.timeout_time = self.next_timeout()
         heartbeat_message = self.create_heartbeat_message()
         self.broadcast_message_to_all(heartbeat_message)
-        # print(f"Leader Server {self.server.id} is sending heartbeat with node activity: {self.server.active_nodes}")
+        print(f"Leader Server {self.server.id} is sending heartbeat with node activity: {self.server.active_nodes}")
 
     def create_heartbeat_message(self):
         """Creates a heartbeat message."""
@@ -575,6 +577,8 @@ class Leader(Role):
         """Checks if a log entry is acknowledged by the majority."""
         acknowledgment_count = sum(1 for follower in self.server.neighbors
                                     if self.match_indexes[follower.id] >= log_index)
+        # acknowledgment_count = sum(1 for active_node in self.server.active_nodes
+        #                             if self.match_indexes[active_node] >= log_index)
         # print(f"Server {self.server.id} has {acknowledgment_count} acknowledgments for log index {log_index}")
         return acknowledgment_count > len(self.server.neighbors) // 2
 
