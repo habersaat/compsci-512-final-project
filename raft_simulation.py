@@ -283,7 +283,6 @@ class RaftSimulation:
                 if leader_id is not None:
                     print(f"Simulating leader failure for server {leader_id}...")
                     self.start_time = time.time()  # Record start time for election
-                    self.global_ground_truth.union(Cluster.config[leader_id]["instance"].term_ground_truth)
                     mark_server_as_dead(leader_id)
                     time.sleep(0.001) # Blocking call acts as a barrier
                     self.wait_for_election_completion()
@@ -343,6 +342,7 @@ class RaftSimulation:
 
         # Kill all servers
         for name, server in Cluster.config.items():
+            self.global_ground_truth = self.global_ground_truth.union(server["instance"].term_ground_truth)
             mark_server_as_dead(name)
         time.sleep(1)
 
@@ -354,7 +354,7 @@ class RaftSimulation:
             # compute hash of logs and print
             logs = server["instance"].log
             print(f"Server {name} logs hash: {hash(str(logs))}. Length: {len(logs)}")
-            print(f"Server {name} logs: {logs}")
+            print(f"Server Truth: {self.global_ground_truth}. Length: {len(self.global_ground_truth)}")
 
 
 # ----------------------- Main Program -----------------------
