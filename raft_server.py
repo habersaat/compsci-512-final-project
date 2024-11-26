@@ -5,9 +5,10 @@ import random
 import time
 from queue import PriorityQueue
 from threading import Lock
+from collections import defaultdict
 
 class Server:
-    def __init__(self, node_id, role, neighbors=None, log=None, commit_index=-1, latency_range=(0.0, 0.0), retransmission_chance=0.0):
+    def __init__(self, node_id, role, ip_address="127.0.0.1", neighbors=None, log=None, commit_index=-1, latency_range=(0.0, 0.0), retransmission_chance=0.0):
         self.id = node_id                               # Unique identifier for the server
         self.role = role                                # Role of the server (Leader, Follower, Candidate)
         self.server_state = ServerState.FOLLOWER if isinstance(role, Follower) else ServerState.LEADER if isinstance(role, Leader) else ServerState.CANDIDATE if isinstance(role, Candidate) else ServerState.JOINING if isinstance(role, Joining) else ServerState.DEAD
@@ -16,7 +17,9 @@ class Server:
         self.message_queue = PriorityQueue()            # Priority Queue for incoming messages (sorted by unpack_time)
         self.message_queue_lock = Lock()                # Lock for the message queue
         self.total_nodes = 0                            # Total number of nodes in the cluster
-        self.active_nodes = 0                           # Number of active nodes in the cluster
+        self.node_activity = defaultdict(float)         # Dictionary to keep track of active nodes and their last heartbeat
+        self.active_nodes = set()                       # Set of active nodes
+        self.ip = ip_address                            # IP address of the server
 
         # Indexes for Raft Algorithm
         self.commit_index = commit_index                # Index of the last committed log entry
