@@ -28,8 +28,9 @@ class Role:
             self.server.current_term = message.term
             return True
         elif message.term < self.server.current_term:
-            self.send_response(message, is_accepted=False)
-            return True
+            message.term = self.server.current_term
+            # self.send_response(message, is_accepted=False)
+            # return True
         return False
 
     def handle_message(self, message):
@@ -94,21 +95,6 @@ class Role:
 
     def process_join_request(self, message):
         """Redirect the join request to the leader."""
-        leader = self.server.get_leader()
-        if leader:
-            join_request_message = Message(
-                message.src,
-                leader.id,
-                message.term,
-                message.payload,
-                MessageType.RequestToJoin,
-                join_upon_confirmation=message.join_upon_confirmation
-            )
-            print(f"Server {self.server.id} is redirecting join request to leader {leader.id}")
-            self.server.send_message(join_request_message, target_id=leader.id)
-        else:
-            print(f"Server {self.server.id} has no leader to process join request")
-        return self, None
 
     def on_leader_timeout(self, message):
         """This is called when the leader timeout is reached."""
@@ -210,10 +196,11 @@ class Follower(Role):
 
         self.timeout_time = self.next_timeout()
 
-        # print(f"Server {self.server.id} is processing command {message.payload['entries']}. Timestamp on message is {message.timestamp}")
+        # print(f"Server {self.server.id} is processing command {message.payload['entries']}. Timestamp is {time.time()}")
 
         # Check for term mismatch
         if message.term < self.server.current_term:
+            # print(f"Term_mismatch spam. Message: {message.term} Server: {self.server.current_term}")
             self.send_response(message, is_accepted=False)
             return self, None
         self.server.current_term = message.term
@@ -234,6 +221,7 @@ class Follower(Role):
         """Validate the log entries in the append entries payload."""
         log = self.server.log
 
+        # print(f"Last log index: {payload['last_log_index']}, Last log term: {payload['last_log_term']}")
         if payload["last_log_index"] == -1:
             return True
         if payload["last_log_index"] > -1 and len(log) <= payload["last_log_index"]:
@@ -260,10 +248,28 @@ class Follower(Role):
             self.server.last_log_index = len(log) - 1
             self.server.last_log_term = log[-1]["term"]
             self.server.log = log
+
+            # print(f"Sending ack to leader for log index {self.server.last_log_index}")
             self.send_response(message, is_accepted=True)
         
     def execute_client_command(self, message):
         return self, None
+    
+    def process_join_request(self, message):
+        """Redirect the join request to the leader."""
+        leader = self.server.get_leader()
+        if leader:
+            join_request_message = Message(
+                message.src,
+                leader.id,
+                message.term,
+                message.payload,
+                MessageType.RequestToJoin,
+                join_upon_confirmation=message.join_upon_confirmation
+            )
+            print(f"Server {self.server.id} is redirecting join request from {message.src} to leader {leader.id}")
+            # print(f"Message src: {message.src}, dst {leader.id}, term {message.term}, payload {message.payload}, type {MessageType.RequestToJoin}")
+            self.server.send_message(join_request_message, leader.id)
 
 
 class Candidate(Role):
@@ -460,14 +466,14 @@ class Leader(Role):
             self.server.current_term,
             {
                 "leader_id": self.server.id,
-                "last_log_index": self.server.last_log_index,
+                "last_log_index": self.server.last_log_index-1,
                 "last_log_term": self.server.last_log_term,
                 "entries": [log_entry],
                 "leader_commit": self.server.commit_index,
             },
             MessageType.AppendEntries
         )
-        # print(f"Leader Server {self.server.id} is sending AppendEntries to all followers")
+        # print(f"Leader Server {self.server.id} is sending log entry {log_entry} to all followers")
         self.server.send_message(append_message)
 
     def send_heartbeat(self):
@@ -475,6 +481,7 @@ class Leader(Role):
         self.timeout_time = self.next_timeout()
         heartbeat_message = self.create_heartbeat_message()
         self.broadcast_message_to_all(heartbeat_message)
+        # print(f"Leader Server {self.server.id} is sending heartbeat")
 
     def create_heartbeat_message(self):
         """Creates a heartbeat message."""
@@ -495,19 +502,21 @@ class Leader(Role):
 
     def broadcast_message_to_all(self, message):
         """Broadcasts a message to all followers."""
-        for neighbor in self.server.neighbors:
-            self.server.send_message(message, target_id=neighbor.id)
+        self.server.send_message(message)
 
     def process_response(self, response_message):
         """Processes a response from a follower."""
         if not response_message.payload["response"]:
             self.retry_log_sync(response_message)
         else:
+            # print(f"Leader Server {self.server.id} received successful response from Server {response_message.src} for log index {self.next_indexes[response_message.src] - 1}")
+            # print(f"response_message: {response_message.payload}")
             self.update_acknowledgements(response_message)
 
     def retry_log_sync(self, response_message):
         """Retries log synchronization if the follower rejected the entries."""
         follower_id = response_message.src
+        # print(f"Leader Server {self.server.id} received failed response from Server {follower_id} for log index {self.next_indexes[follower_id] - 1}")
         self.next_indexes[follower_id] = max(-1, self.next_indexes[follower_id] - 1)
         self.sync_log_with_follower(follower_id)
 
@@ -515,11 +524,14 @@ class Leader(Role):
         """Updates acknowledgments for log replication and commits if quorum is reached."""
 
         follower_id = response_message.src
+        # if response_message["last_log_index"] == -2:
+        #     print("happening")
+        #     return
 
         # Update match_indexes to reflect the latest replicated entry
         latest_index = max(-1, self.next_indexes[follower_id] - 1)
         self.match_indexes[follower_id] = latest_index
-        # print(f"match_indexes: {self.match_indexes}")
+        # print(f"match_indexes: {self.next_indexes[follower_id]}")
 
         # Advance next index after successful replication
         self.advance_next_index(follower_id)
@@ -531,6 +543,7 @@ class Leader(Role):
         """Advances the next index for a follower after successful replication."""
         num_messages = len(self.pending_messages[follower_id])
         self.next_indexes[follower_id] += num_messages
+        # print(f"Leader Server {self.server.id} has advanced next index for Server {follower_id} to {self.next_indexes[follower_id]}")
 
     def update_commit_index(self):
         """Commits log entries if a majority of followers acknowledge."""

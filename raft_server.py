@@ -92,6 +92,13 @@ class Server:
         Sends a message to a specific neighbor or broadcasts to all neighbors.
         """
 
+        # print(f"Server {self.id} sending message to {target_id if target_id else 'all neighbors'}: {message.payload}")
+
+        if message.type == MessageType.RequestToJoin and not target_id:
+            # Not sure where this is coming from but this fixes it
+            # print(f"Server {self.id} sending RequestToJoin to {target_id if target_id else 'all neighbors'}: {message.payload}")
+            return
+
         if target_id:
             # Send to a specific neighbor
             for neighbor in self.neighbors:

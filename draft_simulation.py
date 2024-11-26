@@ -61,7 +61,7 @@ def follower_behavior(server):
     Handles follower-specific tasks.
     """
     if Cluster.term_counter >= 1 and time.time() >= server.role.timeout_time:
-        print(f"Server {server.id} timed out waiting for heartbeat. Starting election...")
+        print(f"Server {server.id} timed out waiting for heartbeat. Timestamp: {time.time()}. Starting election...")
         server.server_state = ServerState.CANDIDATE
 
 

@@ -348,11 +348,12 @@ class RaftSimulation:
         self.benchmark()
 
         # Display each servers logs
+        last_commit_index = min([len(server["instance"].log) for server in Cluster.config.values()])
+        print(f"Committed {last_commit_index} entries.")
         for name, server in Cluster.config.items():
             # compute hash of logs and print
             logs = server["instance"].log
-            print(f"Server {name} logs hash: {hash(str(logs))}. Length: {len(logs)}")
-            print(f"Server {name} logs: {logs}")
+            print(f"Server {name} logs hash: {hash(str(logs[:last_commit_index]))}, log length: {len(logs)}")
 
 
 # ----------------------- Main Program -----------------------
