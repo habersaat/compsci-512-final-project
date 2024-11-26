@@ -164,6 +164,7 @@ def add_server_to_cluster():
         existing_server = data["instance"]
         existing_server.neighbors.append(new_server)
         new_server.neighbors.append(existing_server)
+        existing_server.total_nodes += 1
 
     Cluster.config[Cluster.next_server_id] = {"instance": new_server}
     Thread(target=manage_server_lifecycle, args=(Cluster.next_server_id,), daemon=True).start()
@@ -179,6 +180,7 @@ def add_request_to_join_cluster():
     ip = generate_random_ip()
     new_server_role = Joining()
     new_server = Server(Cluster.next_server_id, new_server_role, ip, set(), [])
+    new_server.total_nodes = Cluster.next_server_id + 1
 
     with Cluster.lock:
         cluster_config = list(Cluster.config.items())
@@ -188,6 +190,7 @@ def add_request_to_join_cluster():
         existing_server = data["instance"]
         existing_server.neighbors.append(new_server)
         new_server.neighbors.append(existing_server)
+        existing_server.total_nodes += 1
 
     with Cluster.lock:
         Cluster.config[Cluster.next_server_id] = {"instance": new_server}
