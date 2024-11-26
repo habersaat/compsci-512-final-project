@@ -104,8 +104,8 @@ class Server:
                 if neighbor.server_state != ServerState.DEAD and neighbor.server_state != ServerState.JOINING and neighbor.id != self.id:
                     message.dst = neighbor.id
                     # I have scoured the ends of the earth to find this bug. I have not been successul. I am sorry.
-                    if message.type == MessageType.AppendEntries and not message.payload["entries"] and not message.payload["last_log_term"]:
-                        break
+                    # if message.type == MessageType.AppendEntries and not message.payload["entries"] and not message.payload["last_log_term"]:
+                    #     break
                     # if message.type == MessageType.AppendEntries:
                     #     print(f"Server {self.id} sent AppendEntries to {neighbor.id}: {message.payload}")
                     self.simulate_network_conditions(neighbor, message)

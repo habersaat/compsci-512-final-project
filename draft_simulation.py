@@ -11,6 +11,7 @@ class Cluster:
     term_counter = 0
     config = {}
     next_server_id = 0
+    lock = Lock()
     
 def process_messages_for_server(server):
     """
@@ -29,7 +30,9 @@ def monitor_all_servers():
     """
     while True:
         time.sleep(0.001)
-        for server_id, server_data in Cluster.config.items():
+        with Cluster.lock:
+            cluster_config = list(Cluster.config.items())
+        for server_id, server_data in cluster_config:
             server = server_data["instance"]
             if server.server_state != ServerState.DEAD:
                 process_messages_for_server(server)
@@ -66,7 +69,7 @@ def promote_to_candidate(server):
     """
     Converts a follower to a candidate and starts an election.
     """
-    time.sleep(randint(1, 10)) # Change based on number of servers or network conditions
+    time.sleep(2) # Change based on number of servers or network conditions
     if server.server_state == ServerState.CANDIDATE:
         server.role = Candidate()
         server.role.assign_to_server(server)
@@ -76,7 +79,8 @@ def manage_server_lifecycle(server_id):
     """
     Manages the lifecycle and role-specific tasks of a server.
     """
-    server = Cluster.config[server_id]["instance"]
+    with Cluster.lock:
+        server = Cluster.config[server_id]["instance"]
 
     while isinstance(server.role, Joining):
         print(f"Server {server_id} is waiting to join the cluster.")
@@ -136,8 +140,11 @@ def add_server_to_cluster():
     new_server.total_nodes = Cluster.next_server_id + 1
     new_server.active_nodes += 1
 
+    with Cluster.lock:
+        cluster_config = list(Cluster.config.items())
+
     # Connect the new server to existing ones
-    for existing_server_id, data in Cluster.config.items():
+    for existing_server_id, data in cluster_config:
         existing_server = data["instance"]
         existing_server.neighbors.append(new_server)
         existing_server.active_nodes += 1
@@ -156,22 +163,28 @@ def add_request_to_join_cluster():
     new_server_role = Joining()
     new_server = Server(Cluster.next_server_id, new_server_role)
 
+    with Cluster.lock:
+        cluster_config = list(Cluster.config.items())
+
     # Connect the new server to existing ones
-    for existing_server_id, data in Cluster.config.items():
+    for existing_server_id, data in cluster_config:
         existing_server = data["instance"]
         existing_server.neighbors.append(new_server)
         existing_server.active_nodes += 1
         new_server.active_nodes += 1
         new_server.neighbors.append(existing_server)
 
-    Cluster.config[Cluster.next_server_id] = {"instance": new_server}
+    with Cluster.lock:
+        Cluster.config[Cluster.next_server_id] = {"instance": new_server}
     Thread(target=manage_server_lifecycle, args=(Cluster.next_server_id,), daemon=True).start()
     Cluster.next_server_id += 1
 
     # Pick a random server to send the request to
-    server_id = random.choice(list(Cluster.config.keys()))
-    while Cluster.config[server_id]["instance"].server_state == ServerState.DEAD or isinstance(Cluster.config[server_id]["instance"].role, Joining):
+    with Cluster.lock:
         server_id = random.choice(list(Cluster.config.keys()))
+    while Cluster.config[server_id]["instance"].server_state == ServerState.DEAD or isinstance(Cluster.config[server_id]["instance"].role, Joining):
+        with Cluster.lock:
+            server_id = random.choice(list(Cluster.config.keys()))
 
     # Send a request to join the cluster
     message = Message(source=new_server.id, destination=server_id, term=Cluster.term_counter, payload=None, message_type=MessageType.RequestToJoin, join_upon_confirmation=True)
@@ -208,7 +221,10 @@ def start_election():
     Initiates an election in the cluster.
     """
 
-    for server_data in Cluster.config.values():
+    with Cluster.lock:
+        cluster_values = list(Cluster.config.values())
+
+    for server_data in cluster_values:
         server = server_data["instance"]
         if server.server_state == ServerState.FOLLOWER:
             server.server_state = ServerState.CANDIDATE
