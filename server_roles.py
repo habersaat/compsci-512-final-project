@@ -544,7 +544,7 @@ class Leader(Role):
         """Checks if a log entry is acknowledged by the majority."""
         acknowledgment_count = sum(1 for follower in self.server.neighbors
                                     if self.match_indexes[follower.id] >= log_index)
-        # print(f"Server {self.server.id} has {acknowledgment_count} acknowledgments for log index {log_index}")
+        print(f"Server {self.server.id} has {acknowledgment_count} acknowledgments for log index {log_index}")
         return acknowledgment_count > len(self.server.neighbors) // 2
 
     def calculate_next_timeout(self):

@@ -263,6 +263,7 @@ class RaftSimulation:
         self.commit_times = []
         self.last_known_leader = None
         self.lock = Lock()  # Lock for thread safety
+        self.global_ground_truth = set()
 
     def initialize_cluster(self):
         """Starts the simulation cluster by spawning servers and initiating an election."""
@@ -338,6 +339,7 @@ class RaftSimulation:
 
         # Kill all servers
         for name, server in Cluster.config.items():
+            self.global_ground_truth = self.global_ground_truth.union(server["instance"].term_ground_truth)
             mark_server_as_dead(name)
         time.sleep(1)
 
@@ -423,11 +425,12 @@ class RaftSimulation:
 
         # Display each servers logs
         last_commit_index = min([len(server["instance"].log) for server in Cluster.config.values()])
+        print(f"Server Truth: {self.global_ground_truth}. Length: {len(self.global_ground_truth)}")
         print(f"Committed {last_commit_index} entries.")
         for name, server in Cluster.config.items():
             # compute hash of logs and print
             logs = server["instance"].log
-            print(f"Server {name} logs hash: {hash(str(logs[:last_commit_index]))}, log length: {len(logs)}")
+            print(f"Server {name} logs hash: {hash(str(logs[:last_commit_index]))}, log length: {len(logs)}, diff: {len(self.global_ground_truth) - len(logs)}")
             # print(f"Server {name} logs: {logs}\n")
 
 
