@@ -294,7 +294,7 @@ class RaftSimulation:
             server = randint(0, len(Cluster.config) - 1)
             while Cluster.config[server]["instance"].server_state == ServerState.DEAD or isinstance(Cluster.config[server]["instance"].role, Joining):
                 server = randint(0, len(Cluster.config) - 1)
-            message_data = randint(1, 100)
+            message_data = randint(1, 100000)
             self.commit_start_time = time.time()
             forward_client_request(server, message_data)
 
@@ -324,6 +324,7 @@ class RaftSimulation:
         for name, server in Cluster.config.items():
             mark_server_as_dead(name)
         time.sleep(1)
+
 
     def add_node_periodically(self):
         """Periodically adds a new node to the cluster if specified."""
@@ -405,10 +406,13 @@ class RaftSimulation:
         self.benchmark()
 
         # Display each servers logs
+        last_commit_index = min([len(server["instance"].log) for server in Cluster.config.values()])
+        print(f"Committed {last_commit_index} entries.")
         for name, server in Cluster.config.items():
             # compute hash of logs and print
             logs = server["instance"].log
-            print(f"Server {name} logs hash: {hash(str(logs))}. Length: {len(logs)}")
+            print(f"Server {name} logs hash: {hash(str(logs[:last_commit_index]))}, log length: {len(logs)}")
+            # print(f"Server {name} logs: {logs}\n")
 
 
 # ----------------------- Main Program -----------------------

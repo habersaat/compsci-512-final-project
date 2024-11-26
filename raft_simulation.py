@@ -251,7 +251,7 @@ class RaftSimulation:
         while time.time() < end_time:
             # Randomly send client commands to simulate activity
             server = randint(0, len(Cluster.config) - 1)
-            message_data = randint(1, 100)
+            message_data = randint(1, 10000)
             self.commit_start_time = time.time()
             forward_client_request(server, message_data)
 
