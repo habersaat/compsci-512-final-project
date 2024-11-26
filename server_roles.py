@@ -339,7 +339,7 @@ class Candidate(Role):
         """Checks if the candidate has received the majority of votes."""
         # print(f"Server {self.server.id} has {len(self.votes)} votes. Total Majority: {(self.server.total_nodes // 2) + 1}. Active Majority: {(len(self.server.active_nodes) // 2) + 1}")
         # print(f"Server {self.server.id} has active nodes: {self.server.active_nodes}")
-        return len(self.votes) >= (self.server.total_nodes // 2) + 1
+        return len(self.votes) >= (len(self.server.active_nodes) // 2) + 1
 
     def promote_to_leader(self):
         """
@@ -575,10 +575,10 @@ class Leader(Role):
 
     def is_majority_acknowledged(self, log_index):
         """Checks if a log entry is acknowledged by the majority."""
-        acknowledgment_count = sum(1 for follower in self.server.neighbors
-                                    if self.match_indexes[follower.id] >= log_index)
-        # acknowledgment_count = sum(1 for active_node in self.server.active_nodes
-        #                             if self.match_indexes[active_node] >= log_index)
+        # acknowledgment_count = sum(1 for follower in self.server.neighbors
+        #                             if self.match_indexes[follower.id] >= log_index)
+        acknowledgment_count = sum(1 for active_node in self.server.active_nodes
+                                    if self.match_indexes[active_node] >= log_index)
         # print(f"Server {self.server.id} has {acknowledgment_count} acknowledgments for log index {log_index}")
         return acknowledgment_count > len(self.server.neighbors) // 2
 

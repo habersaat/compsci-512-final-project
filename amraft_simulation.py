@@ -13,6 +13,8 @@ class Cluster:
     next_server_id = 0
     lock = Lock()
     all_nodes = set()
+    committed_messages = set()
+    max_commit_index = 0
 
 
 def generate_random_ip():
@@ -60,6 +62,12 @@ def leader_behavior(server):
         if time.time() - last_heartbeat < HEARTBEAT_TIMEOUT:
             active_nodes.add(node)
     server.active_nodes = active_nodes
+
+    # Add committed messages to the set
+    for i in range(len(server.log)):
+        if i >= server.commit_index:
+            break
+        Cluster.committed_messages.add(str(server.log[i]))
 
 
 def candidate_behavior(server):
@@ -462,7 +470,11 @@ class RaftSimulation:
             if server["instance"].server_state != ServerState.DEAD and server["instance"].server_state != ServerState.JOINING:
                 logs = server["instance"].log
                 print(f"Server {name} logs hash: {hash(str(logs))}, log length: {len(logs)}")
-                # print(f"Server {name} logs: {logs}\n")
+
+        log0 = set([str(log) for log in Cluster.config[0]["instance"].log])
+        setDiff = Cluster.committed_messages.difference(log0)
+        print(f"{len(log0) - len(setDiff)} / {len(log0)} ({100 * (len(log0) - len(setDiff)) / len(log0)}%) of commited logs received\n")
+        print(f"Committed logs lost: {len(setDiff)}\n")
 
 
 # ----------------------- Main Program -----------------------
@@ -470,7 +482,7 @@ class RaftSimulation:
 if __name__ == "__main__":
     # Parameters for the simulation
     num_servers = 20
-    simulation_duration = 100  # Run simulation for 30 seconds
+    simulation_duration = 45  # Run simulation for 30 seconds
     leader_fail_frequency = 5  # Fail leader every 5 seconds
     leader_recover_frequency = 6  # Recover leader every 6 seconds
     add_node_frequency = 6  # Add a new node every 6 seconds
